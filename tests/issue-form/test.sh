@@ -31,7 +31,8 @@ else
                 || fail "field is not required: $id"
         fi
     done
-    for option in lisp-writing lisp-verify lisp-project; do
+    for skill_dir in "$root"/plugins/lisp-skills/skills/*/; do
+        option=$(basename "$skill_dir")
         field_block skill | grep -qE "^        - \"?$option\"?$" \
             || fail "skill dropdown lacks option: $option"
     done
