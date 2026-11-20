@@ -1,3 +1,4 @@
+<!-- essential -->
 # ASDF details
 
 ASDF 3 ships with Allegro CL: `(require :asdf)`. This file covers what the
