@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <rect width="1280" height="640" fill="#EDE7FB"/>
+  <g transform="translate(120 160) scale(1.25)">
+    <rect width="256" height="256" rx="56" fill="#FFFFFF"/>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M94 50 Q34 128 94 206" stroke="#4B2E83" stroke-width="22"/>
+      <path d="M162 50 Q222 128 162 206" stroke="#4B2E83" stroke-width="22"/>
+      <path d="M100 160 L121 181 L158 139" stroke="#22C55E" stroke-width="20"/>
+      <path d="M115 111 Q128 122 141 111" stroke="#4B2E83" stroke-width="6"/>
+    </g>
+    <circle cx="113" cy="94" r="7" fill="#4B2E83"/>
+    <circle cx="143" cy="94" r="7" fill="#4B2E83"/>
+  </g>
+  <text x="520" y="300" font-family="Helvetica, Arial, sans-serif" font-size="88" font-weight="bold" fill="#4B2E83">lisp-skills</text>
+  <text x="524" y="370" font-family="Helvetica, Arial, sans-serif" font-size="34" fill="#4B2E83">Agent skills for Common Lisp</text>
+  <text x="524" y="416" font-family="Helvetica, Arial, sans-serif" font-size="34" fill="#4B2E83">on Allegro CL</text>
+</svg>
