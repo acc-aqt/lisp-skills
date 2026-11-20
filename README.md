@@ -84,3 +84,7 @@ Please paste only generic code; this repository is public.
 ## Plan
 
 The spec is [#1](https://github.com/acc-aqt/lisp-skills/issues/1); its sub-issues are the tickets.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
