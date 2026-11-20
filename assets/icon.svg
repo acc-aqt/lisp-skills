@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="lisp-skills: a pair of balanced parentheses hugging a checkmark">
+  <rect width="256" height="256" rx="56" fill="#EDE7FB"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M94 50 Q34 128 94 206" stroke="#4B2E83" stroke-width="22"/>
+    <path d="M162 50 Q222 128 162 206" stroke="#4B2E83" stroke-width="22"/>
+    <path d="M100 160 L121 181 L158 139" stroke="#22C55E" stroke-width="20"/>
+    <path d="M115 111 Q128 122 141 111" stroke="#4B2E83" stroke-width="6"/>
+  </g>
+  <circle cx="113" cy="94" r="7" fill="#4B2E83"/>
+  <circle cx="143" cy="94" r="7" fill="#4B2E83"/>
+</svg>
