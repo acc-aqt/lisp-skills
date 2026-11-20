@@ -1,0 +1,77 @@
+name: Skill failure
+description: A skill or the rules file led a model to Lisp that is wrong, doesn't compile, or fails its tests.
+title: "[skill failure] "
+labels: [needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please give enough detail that someone else can rerun your prompt and get the same result.
+        Paste text, not screenshots. Remove anything confidential before posting; this repository is public.
+  - type: input
+    id: harness
+    attributes:
+      label: Harness
+      description: Where the model ran, with version if known.
+      placeholder: "Claude Code 2.x, OpenCode, Continue, Cline, Aider, ..."
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: Model name and size or quantisation, if relevant.
+      placeholder: "claude-sonnet-..., qwen3-8b Q4_K_M, ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: skill
+    attributes:
+      label: Skill
+      description: Which skill was in use? Choose "flat rules file" for open harnesses using dist/lisp-rules.md.
+      options:
+        - lisp-writing
+        - lisp-verify
+        - lisp-project
+        - flat rules file (dist/lisp-rules.md)
+        - other
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: The exact prompt you gave the model.
+    validations:
+      required: true
+  - type: textarea
+    id: model-output
+    attributes:
+      label: Model output
+      description: The code or answer the model produced.
+      render: lisp
+    validations:
+      required: true
+  - type: textarea
+    id: lisp-check-output
+    attributes:
+      label: lisp-check output
+      description: Output of `bin/lisp-check` on the model's code. If you couldn't run it, say why.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What correct code or behaviour would look like.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Allegro version, alisp or mlisp, operating system, other context.
+    validations:
+      required: false
