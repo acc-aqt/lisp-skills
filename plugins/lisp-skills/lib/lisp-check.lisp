@@ -85,13 +85,14 @@ sits at or left of an open paren: it looks like it comes after that form."
 
 (defun line-indentation (text start)
   "Return the indentation of the line starting at START in TEXT as
-(values COLUMN TABP), or NIL when the line is blank or a comment."
+(values COLUMN TABP), or NIL when the line is blank, a comment, or starts
+with ) and so only closes forms."
   (let* ((end (or (position-if-not (lambda (char) (member char '(#\Space #\Tab)))
                                    text :start start)
                   (length text)))
          (first (and (< end (length text)) (char text end))))
     (unless (or (null first)
-                (member first '(#\Newline #\Return #\;))
+                (member first '(#\Newline #\Return #\; #\)))
                 (and (char= first #\#)
                      (< (1+ end) (length text))
                      (char= (char text (1+ end)) #\|)))
