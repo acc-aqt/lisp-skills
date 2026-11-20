@@ -11,14 +11,20 @@
 (in-package :lisp-writing-parens)
 
 ;;; 1. A form escapes WHEN: its ) closes before the body.
-;;;    (INCF COUNT) then runs for every word.
+;;;    (INCF COUNT) then runs for every word. The wrong version is kept in a
+;;;    string because lisp-check reports its indentation as a structure
+;;;    problem.
+
+(defparameter *count-long-wrong*
+  "(lambda (words)
+     (let ((count 0))
+       (dolist (word words)
+         (when (> (length word) 3))
+           (incf count))
+       count))")
 
 (defun count-long-wrong (words)
-  (let ((count 0))
-    (dolist (word words)
-      (when (> (length word) 3))
-        (incf count))
-    count))
+  (funcall (compile nil (read-from-string *count-long-wrong*)) words))
 
 (defun count-long (words)
   (let ((count 0))
