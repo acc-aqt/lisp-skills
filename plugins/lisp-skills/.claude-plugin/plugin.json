@@ -1,0 +1,9 @@
+{
+  "name": "lisp-skills",
+  "version": "0.1.0",
+  "description": "Write, structure and verify Common Lisp for Allegro CL, with the lisp-check command.",
+  "author": {
+    "name": "acc-aqt"
+  },
+  "repository": "https://github.com/acc-aqt/lisp-skills"
+}
