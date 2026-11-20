@@ -63,40 +63,73 @@ Uses Allegro internals, so any surprise yields NIL."
 (defun fasl-path ()
   (format nil "/tmp/lisp-check-~d.fasl" (excl::getpid)))
 
-(defun compile-stage ()
-  "Compile *FILE* into a temporary fasl. Every warning is a problem."
+(defun compile-stage (fasl)
+  "Compile *FILE* into FASL. Every warning is a problem."
   (let ((ok t)
-        (fasl (fasl-path))
         (error-position nil))
-    (unwind-protect
-         (handler-case
-             (handler-bind ((warning
-                              (lambda (condition)
-                                (setf ok nil)
-                                (report (warning-line condition) "compile"
-                                        (format nil "~:[warning~;style-warning~]: ~a"
-                                                (typep condition 'style-warning)
-                                                (one-line condition)))
-                                (muffle-warning condition)))
-                            (stream-error
-                              (lambda (condition)
-                                (setf error-position
-                                      (ignore-errors
-                                       (file-position (stream-error-stream condition)))))))
-               (let ((*package* (find-package :cl-user)))
-                 (compile-file *file* :output-file fasl :verbose nil :print nil
-                                      :external-format :utf-8)))
-           (error (condition)
-             (setf ok nil)
-             (report (and error-position (line-at (1- error-position)))
-                     "compile" condition)))
-      (ignore-errors (delete-file fasl)))
+    (handler-case
+        (handler-bind ((warning
+                         (lambda (condition)
+                           (setf ok nil)
+                           (report (warning-line condition) "compile"
+                                   (format nil "~:[warning~;style-warning~]: ~a"
+                                           (typep condition 'style-warning)
+                                           (one-line condition)))
+                           (muffle-warning condition)))
+                       (stream-error
+                         (lambda (condition)
+                           (setf error-position
+                                 (ignore-errors
+                                  (file-position (stream-error-stream condition)))))))
+          (let ((*package* (find-package :cl-user))
+                (*load-verbose* nil))
+            (compile-file *file* :output-file fasl :verbose nil :print nil
+                                 :external-format :utf-8)))
+      (error (condition)
+        (setf ok nil)
+        (report (and error-position (line-at (1- error-position)))
+                "compile" condition)))
     ok))
 
+(defun tester-variable (name)
+  (find-symbol name :util.test))
+
+(defun test-stage (fasl)
+  "Load FASL, which runs the file's top-level tester assertions.
+Tester prints each failing assertion itself; this adds one summary line."
+  (let ((*load-verbose* nil))
+    (require :tester))
+  (let ((errors (tester-variable "*TEST-ERRORS*"))
+        (successes (tester-variable "*TEST-SUCCESSES*")))
+    (progv (list errors successes) (list 0 0)
+      (handler-case (let ((*package* (find-package :cl-user)))
+                      (load fasl :verbose nil :print nil))
+        (error (condition)
+          (report nil "test" (format nil "error while running the tests: ~a"
+                                     (one-line condition)))
+          (return-from test-stage nil)))
+      (let ((failed (symbol-value errors))
+            (passed (symbol-value successes)))
+        (cond ((plusp failed)
+               (report nil "test" (format nil "~d of ~d assertions failed"
+                                          failed (+ failed passed)))
+               nil)
+              ((zerop passed)
+               (report nil "test" "no tester assertions ran (write them as top-level (test ...) forms, not inside with-tests)")
+               nil)
+              (t t))))))
+
 (defun main ()
-  (let* ((*file* (second (sys:command-line-arguments :application t)))
+  (let* ((arguments (rest (sys:command-line-arguments :application t)))
+         (*file* (first arguments))
          (*text* (file-text *file*))
-         (ok (and (read-stage) (compile-stage))))
+         (fasl (fasl-path))
+         (ok (unwind-protect
+                  (and (read-stage)
+                       (compile-stage fasl)
+                       (or (not (member "--test" arguments :test #'string=))
+                           (test-stage fasl)))
+               (ignore-errors (delete-file fasl)))))
     (format t "~:[FAIL~;OK~]~%" ok)
     (finish-output)
     (excl:exit (if ok 0 1) :quiet t)))

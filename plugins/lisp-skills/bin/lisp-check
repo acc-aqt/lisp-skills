@@ -1,12 +1,13 @@
 #!/bin/sh
 # Checks one Common Lisp file with Allegro CL in batch mode.
 #
-# Usage: lisp-check FILE
+# Usage: lisp-check [--test] FILE
+# --test also loads the compiled file and runs its tester (util.test) assertions.
 # LISP_BIN names the Lisp binary (default: alisp).
 # Prints problems as FILE:LINE: STAGE: MESSAGE, then exactly one OK or FAIL line.
 # Exit status: 0 OK, 1 the file has problems, 2 lisp-check could not run.
 
-usage='Usage: lisp-check FILE'
+usage='Usage: lisp-check [--test] FILE'
 lisp=${LISP_BIN:-alisp}
 
 give_up() {
@@ -16,9 +17,10 @@ give_up() {
 }
 
 file=
+test=
 for arg in "$@"; do
     case $arg in
-        --test) give_up "--test is not implemented yet. $usage" ;;
+        --test) test=--test ;;
         -*) give_up "unknown option '$arg'. $usage" ;;
         *) [ -z "$file" ] || give_up "only one file at a time. $usage"
            file=$arg ;;
@@ -31,7 +33,7 @@ command -v "$lisp" >/dev/null 2>&1 \
     || give_up "Lisp binary '$lisp' not found. Install Allegro CL or set LISP_BIN to its path."
 
 driver="$(cd "$(dirname "$0")" && pwd)/../lib/lisp-check.lisp"
-"$lisp" -qq -batch -L "$driver" -e '(lisp-check::main)' -kill -- "$file"
+"$lisp" -qq -batch -L "$driver" -e '(lisp-check::main)' -kill -- "$file" $test
 status=$?
 case $status in
     0|1) exit "$status" ;;

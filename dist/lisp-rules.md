@@ -4,7 +4,7 @@
 
 ## lisp-verify
 
-Check loop for Common Lisp. Use after writing or editing any Lisp source file (.lisp, .cl) to run lisp-check, fix the first error, and repeat until OK.
+Check loop for Common Lisp. Use after writing or editing any Lisp source or test file (.lisp, .cl) to run lisp-check, fix the first error, and repeat until OK.
 
 
 Every Lisp file you write must pass `lisp-check`. A file is done only when
@@ -14,7 +14,8 @@ Every Lisp file you write must pass `lisp-check`. A file is done only when
 
 For each Lisp file you created or changed:
 
-1. Run `lisp-check path/to/file.lisp`.
+1. Run `lisp-check path/to/file.lisp`. If the file has `tester` tests, run
+   `lisp-check --test path/to/file.lisp` instead.
 2. Read the output. The last line is `OK` or `FAIL`.
 3. If the last line is `OK`, this file is done. Go to the next file.
 4. If the last line is `FAIL`, fix **only the first problem line** in the output.
@@ -26,6 +27,18 @@ so they may disappear once it is fixed.
 
 Finish the loop before you report the work as done. When you report, say that
 `lisp-check` printed `OK` for each file.
+
+## When to use `--test`
+
+`--test` also loads the compiled file, which runs its top-level `tester`
+assertions (`(test ...)`, `(test-error ...)`).
+
+- Use `--test` on every test file, usually named `NAME-tests.lisp`. To
+  write one, see [references/tester-tests.md](references/tester-tests.md).
+- Check other files without `--test`: a file with no assertions fails with
+  `no tester assertions ran`.
+- When you change code that a test file covers, run the loop on the test
+  file with `--test` too.
 
 ## Reading the output
 
@@ -87,22 +100,27 @@ FAIL
 ```
 
 `LINE` is where the **top-level form** containing the problem starts, usually
-a `defun`. Search that whole form for the name in the message. To fix the
-first warning:
+a `defun`. Search that whole form for the name in the message, and fix the
+cause in the code so the warning goes away. Fixes for common warnings:
+[references/compile-warnings.md](references/compile-warnings.md).
 
-- `Variable B is never used`: remove `B`, use it, or add
-  `(declare (ignore b))` when the argument must stay.
-- `Free reference to undeclared variable *X*`: define `*X*` with
-  `defvar` or `defparameter` above its first use, or fix the misspelled name.
-- `undefined functions were referenced: F`: define `F`, fix the misspelled
-  name, or add the package prefix.
-- Wrong number of arguments: match the call to the function's lambda list.
-- `Package "P" not found`: fix the package name, or define the package
-  with `defpackage` before the code that uses it.
+### Stage `test` (only with `--test`)
 
-Fix the cause in the code so the warning goes away. The one declaration that
-counts as a fix is `(declare (ignore ...))` for an argument the function must
-accept but does not use.
+The file compiled, and loading it ran the assertions. `tester` prints a
+`Test failed:` block for each failed assertion, before the `test:` line:
+
+```
+Test failed: (ADD1 1)
+  wanted: 5
+     got: 2
+src/math-tests.lisp:?: test: 1 of 4 assertions failed
+FAIL
+```
+
+Fix the first `Test failed:` block. Change the code under test so the form
+returns the wanted value; change the assertion only when its wanted value is
+wrong. For other `test` messages, see
+[references/tester-tests.md](references/tester-tests.md).
 
 ### Lines that start with `lisp-check:`
 
@@ -119,6 +137,7 @@ the user what the message says and stop.
 
 ```sh
 lisp-check path/to/file.lisp
+lisp-check --test path/to/file-tests.lisp
 ```
 
 - Check one file per command.
@@ -129,14 +148,83 @@ lisp-check path/to/file.lisp
   script from the lisp-skills plugin by its full path. In Claude Code that is
   `${CLAUDE_PLUGIN_ROOT}/bin/lisp-check`.
 
-## Example
+## Examples
 
-`examples/clean.lisp` passes `lisp-check`:
+`examples/clean.lisp` passes `lisp-check`, and
+`examples/count-words-tests.lisp` passes `lisp-check --test`.
+
+# Fixing compile warnings
+
+Fix the first warning in the `lisp-check` output:
+
+- `Variable B is never used`: remove `B`, use it, or add
+  `(declare (ignore b))` when the argument must stay.
+- `Free reference to undeclared variable *X*`: define `*X*` with
+  `defvar` or `defparameter` above its first use, or fix the misspelled name.
+- `undefined functions were referenced: F`: define `F`, fix the misspelled
+  name, or add the package prefix.
+- Wrong number of arguments: match the call to the function's lambda list.
+- `Package "P" not found`: fix the package name, or define the package
+  with `defpackage` before the code that uses it.
+
+Fix the cause in the code so the warning goes away. The one declaration that
+counts as a fix is `(declare (ignore ...))` for an argument the function must
+accept but does not use.
+
+# Tests for `lisp-check --test`
+
+`lisp-check --test` loads the compiled file, and loading runs every top-level
+`tester` assertion in it. Write test files in this shape:
+
+```lisp
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :tester))
+
+(defpackage :math-tests
+  (:use :cl :util.test))
+
+(in-package :math-tests)
+
+(test 2 (add1 1))
+(test "ab" (concatenate 'string "a" "b") :test #'string=)
+(test '(1 2) (list 1 2) :test #'equal)
+(test-error (parse-age "x"))
+```
+
+- Name the file `NAME-tests.lisp`.
+- Start with the `eval-when` / `require` form, so the `util.test` package
+  exists when the file compiles.
+- Put each assertion at top level. `lisp-check` counts top-level assertions
+  only; assertions inside `with-tests` give `no tester assertions ran`.
+- `(test WANTED FORM)` compares with `eql`. Compare strings with
+  `:test #'string=` and lists with `:test #'equal`.
+- `(test-error FORM)` passes when FORM signals a `simple-error`, which
+  `(error "...")` does. For another condition class add
+  `:condition-type 'CLASS`. Test errors your code signals itself: compiled
+  code may skip type checks, so `(car 1)` can return garbage instead of
+  signalling `type-error`.
+
+## Test output
 
 ```
-$ lisp-check examples/clean.lisp
-OK
+ * * * UNEXPECTED TEST FAILURE * * *
+Test failed: (ADD1 1)
+  wanted: 5
+     got: 2
+src/math-tests.lisp:?: test: 1 of 4 assertions failed
+FAIL
 ```
+
+`tester` prints a block for each failed assertion: the form it ran, the value
+wanted and the value it got. A `test-error` block says
+`Reason: expected but did not detect an error`.
+
+Other `test` messages:
+
+- `error while running the tests: MESSAGE`: a top-level form signalled an
+  error, so the assertions after it did not run. Fix that error first.
+- `no tester assertions ran`: the file has no top-level assertions. Add
+  them, or check the file without `--test` if it is not a test file.
 
 ## lisp-writing
 
