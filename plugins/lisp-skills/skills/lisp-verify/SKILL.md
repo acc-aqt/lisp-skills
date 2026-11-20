@@ -3,8 +3,6 @@ name: lisp-verify
 description: Check loop for Common Lisp. Use after writing or editing any Lisp source file (.lisp, .cl) to run lisp-check, fix the first error, and repeat until OK.
 ---
 
-# lisp-verify
-
 Every Lisp file you write must pass `lisp-check`. A file is done only when
 `lisp-check` prints `OK` for it.
 
