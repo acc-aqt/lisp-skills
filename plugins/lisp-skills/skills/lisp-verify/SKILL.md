@@ -1,0 +1,107 @@
+---
+name: lisp-verify
+description: Check loop for Common Lisp. Use after writing or editing any Lisp source file (.lisp, .cl) to run lisp-check, fix the first error, and repeat until OK.
+---
+
+# lisp-verify
+
+Every Lisp file you write must pass `lisp-check`. A file is done only when
+`lisp-check` prints `OK` for it.
+
+## The loop
+
+For each Lisp file you created or changed:
+
+1. Run `lisp-check path/to/file.lisp`.
+2. Read the output. The last line is `OK` or `FAIL`.
+3. If the last line is `OK`, this file is done. Go to the next file.
+4. If the last line is `FAIL`, fix **only the first problem line** in the output.
+   Make the smallest edit that fixes it. Keep the rest of the file as it is.
+5. Go back to step 1.
+
+Fix one problem per round. Later problems are often caused by the first one,
+so they may disappear once it is fixed.
+
+Finish the loop before you report the work as done. When you report, say that
+`lisp-check` printed `OK` for each file.
+
+## Reading the output
+
+Each problem is one line:
+
+```
+FILE:LINE: STAGE: MESSAGE
+```
+
+- `FILE` is the file you checked.
+- `LINE` is the line number to look at. `?` means the line is unknown.
+- `STAGE` says which check found the problem.
+- `MESSAGE` says what is wrong.
+
+After the problem lines comes exactly one summary line: `OK` or `FAIL`.
+The exit code is `0` for `OK`, `1` when the file has problems, and `2` when
+`lisp-check` itself could not run.
+
+### Stage `read`
+
+The file does not read as Lisp. Usually the parentheses or quotes do not
+balance.
+
+```
+src/math.lisp:9: read: form starting here is never closed (missing ')', '"' or '|#')
+FAIL
+```
+
+This means the top-level form that starts on line 9 is missing a closing
+`)`, a closing `"` or a closing `|#`. The missing character belongs somewhere
+inside that form, not at the end of the file. To fix it:
+
+1. Go to the form that starts on that line.
+2. Count `(` and `)` in that form, one inner form at a time.
+3. Add the missing `)` where the inner form should end.
+4. Check that every string `"` and every `#|` comment is closed.
+
+```
+src/math.lisp:7: read: Invalid unmatched right parenthesis read.
+FAIL
+```
+
+Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
+`(` that is missing before it.
+
+Other `read` messages name the bad syntax, for example
+`Comma not inside a backquote.` Fix the syntax on that line.
+
+### Lines that start with `lisp-check:`
+
+```
+lisp-check: Lisp binary 'alisp' not found. Install Allegro CL or set LISP_BIN to its path.
+FAIL
+```
+
+A line that starts with `lisp-check:` is about the check itself, not your
+file (exit code `2`). Leave the Lisp file as it is. Fix the command, or tell
+the user what the message says and stop.
+
+## Running lisp-check
+
+```sh
+lisp-check path/to/file.lisp
+```
+
+- Check one file per command.
+- `lisp-check` runs Allegro CL in batch mode. It uses the binary named in the
+  `LISP_BIN` environment variable, or `alisp` when `LISP_BIN` is not set:
+  `LISP_BIN=/path/to/alisp lisp-check file.lisp`
+- If the shell says `lisp-check: command not found`, run the `bin/lisp-check`
+  script from the lisp-skills plugin by its full path. In Claude Code that is
+  `${CLAUDE_PLUGIN_ROOT}/bin/lisp-check`.
+
+## Example
+
+`examples/clean.lisp` passes `lisp-check`:
+
+```
+$ lisp-check examples/clean.lisp
+OK
+```
