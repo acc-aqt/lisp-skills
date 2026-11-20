@@ -560,6 +560,29 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - Keep a function short and give it a docstring.
 - Unused argument: `(declare (ignore x))` as the first form of the body.
 
+### Bracket structure
+
+- Put a form's closing parens at the end of its last line, all together:
+  `(incf count)))`. Never put `)` on a line of its own.
+- Start each sub-form on its own line, indented under its parent. The
+  indentation then shows which form each line belongs to.
+
+From `examples/parens-tests.lisp`:
+
+```lisp
+(defun count-long (words)
+  (let ((count 0))
+    (dolist (word words)
+      (when (> (length word) 3)
+        (incf count)))
+    count))
+```
+
+After writing a form, check that its parens match its indentation. A `)` in
+the wrong place often still compiles, but the code does something else.
+Common misplacements, each with a wrong and a right version:
+`references/parens.md`.
+
 ### Packages
 
 Start each file with its package (from `examples/greeting.lisp`):
@@ -590,6 +613,7 @@ Open a reference when you write that kind of code:
 - `references/clos.md`: `defclass`, `defgeneric`, `defmethod`, `print-object`.
 - `references/conditions.md`: `handler-case`, `define-condition`, restarts,
   `unwind-protect`.
+- `references/parens.md`: misplaced parens in `when`, `if`, `cond` and `defun`.
 - `references/allegro.md`: shell commands, `excl:` string and regexp utilities,
   environment variables, case mode.
 
@@ -652,3 +676,70 @@ Each pattern is from `examples/loop-tests.lisp`, which passes `lisp-check --test
 - Accumulate with `collect`, `append`, `sum`, `count`, `maximize`, `minimize`.
 - Side effects go after `do`. `do` takes one or more forms.
 - For a plain walk with side effects, `dolist` and `dotimes` are fine too.
+
+### Misplaced parens
+
+From `examples/parens-tests.lisp`, which passes `lisp-check --test`. Each
+wrong version compiles without a warning but does something else. Its
+indentation shows what was meant; the parens decide what runs.
+
+**A form escapes `when`, `let` or `dolist`.** The `when` closes before its
+body, so `(incf count)` runs for every word:
+
+```lisp
+;; Wrong: (count-long-wrong (list "a" "bb" "cccc")) => 3
+(dolist (word words)
+  (when (> (length word) 3))
+    (incf count))
+
+;; Right: (count-long (list "a" "bb" "cccc")) => 1
+(dolist (word words)
+  (when (> (length word) 3)
+    (incf count)))
+```
+
+**The else-branch of `if` is nested in the then-branch.** The `if` then has
+no else-branch and returns `nil`:
+
+```lisp
+;; Wrong: (classify-wrong 5) => NIL
+(if (minusp n)
+    (list :negative n
+    (list :positive n)))
+
+;; Right: (classify 5) => (:POSITIVE 5)
+(if (minusp n)
+    (list :negative n)
+    (list :positive n))
+```
+
+**Two `cond` clauses merge.** The second test becomes a body form of the
+first clause, and the clause returns its last form:
+
+```lisp
+;; Wrong: (parity-wrong 0) => :EVEN, (parity-wrong 2) => :ODD
+(cond ((zerop n) :zero
+       (evenp n) :even)
+      (t :odd))
+
+;; Right: (parity 0) => :ZERO, (parity 2) => :EVEN
+(cond ((zerop n) :zero)
+      ((evenp n) :even)
+      (t :odd))
+```
+
+**The `defun` body ends early.** The `)` after `(incf n)` closes the
+`defun`. The `format` form is then outside the function, and the last `)`
+is one too many:
+
+```lisp
+;; Wrong: the defun is (defun next-label (n) (incf n))
+(defun next-label (n)
+  (incf n))
+  (format nil "item-~d" n))
+
+;; Right
+(defun next-label (n)
+  (incf n)
+  (format nil "item-~d" n))
+```
