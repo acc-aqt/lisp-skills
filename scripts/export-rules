@@ -21,11 +21,34 @@ frontmatter_value() {
 body() {
     awk '
         NR == 1 && $0 == "---" { inside = 1; next }
-        inside && $0 == "---" { inside = 0; started = 1; next }
+        inside && $0 == "---" { inside = 0; next }
         inside { next }
         !started && $0 == "" { next }
         { started = 1; print }
     ' "$1"
+}
+
+# nest_headings: shifts the Markdown headings on stdin so the highest one becomes
+# ### and the whole text sits below "## <skill>". Lines in code fences are kept.
+nest_headings() {
+    awk '
+        function level(line) { match(line, /^#+ /); return RLENGTH - 1 }
+        { lines[NR] = $0 }
+        /^(```|~~~)/ { fenced = !fenced; next }
+        !fenced && /^#+ / && (top == 0 || level($0) < top) { top = level($0) }
+        END {
+            fenced = 0
+            for (i = 1; i <= NR; i++) {
+                line = lines[i]
+                if (line ~ /^(```|~~~)/) {
+                    fenced = !fenced
+                } else if (!fenced && line ~ /^#+ /) {
+                    line = substr("######", 1, level(line) - top + 3) substr(line, level(line) + 1)
+                }
+                print line
+            }
+        }
+    '
 }
 
 export_skill() {
@@ -35,12 +58,12 @@ export_skill() {
     printf '\n## %s\n\n' "$name"
     description=$(frontmatter_value "$skill_file" description)
     [ -z "$description" ] || printf '%s\n\n' "$description"
-    body "$skill_file"
+    body "$skill_file" | nest_headings
     for reference in "$(dirname "$skill_file")"/references/*.md; do
         [ -f "$reference" ] || continue
         [ "$(head -n 1 "$reference")" = "$essential_marker" ] || continue
         printf '\n'
-        tail -n +2 "$reference"
+        tail -n +2 "$reference" | nest_headings
     done
 }
 
