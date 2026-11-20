@@ -46,9 +46,9 @@ plugins/lisp-skills/bin/lisp-check --test file.lisp    # also run the file's tes
 LISP_BIN=/path/to/alisp plugins/lisp-skills/bin/lisp-check file.lisp
 ```
 
-Status: only the read stage exists so far. The compile stage ([#4](https://github.com/acc-aqt/lisp-skills/issues/4)) and `--test` ([#5](https://github.com/acc-aqt/lisp-skills/issues/5)) are in progress; until then `--test` stops with `FAIL`.
+`--test` ([#5](https://github.com/acc-aqt/lisp-skills/issues/5)) is in progress; until then it stops with `FAIL`.
 
-Each problem is printed as `FILE:LINE: STAGE: MESSAGE`. The last line of the output is `OK` or `FAIL`; the exit code is 0 for `OK`, 1 when the file has problems and 2 when `lisp-check` could not run.
+A file that reads cleanly is compiled with `compile-file` into a temporary fasl that is deleted afterwards. Any compiler warning, style warnings included, fails the check. Each problem is printed as `FILE:LINE: STAGE: MESSAGE`. The last line of the output is `OK` or `FAIL`; the exit code is 0 for `OK`, 1 when the file has problems and 2 when `lisp-check` could not run.
 
 `make check` runs `lisp-check` over its test files in `tests/lisp-check/` and over every `.lisp` file under a skill's `examples/` (each must print `OK`; files named `*-tests.lisp` are checked with `--test`), and runs the repo's script tests. `make docker-check` runs `make check` inside the Docker image described below.
 
