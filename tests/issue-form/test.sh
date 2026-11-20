@@ -3,14 +3,9 @@
 # needs-triage, and marks every field a reproducible report needs as required.
 set -u
 
-root=$(cd "$(dirname "$0")/../.." && pwd)
-form="$root/.github/ISSUE_TEMPLATE/skill-failure.yml"
-failures=0
+. "$(dirname "$0")/../lib.sh"
 
-fail() {
-    echo "FAIL: $1"
-    failures=$((failures + 1))
-}
+form="$root/.github/ISSUE_TEMPLATE/skill-failure.yml"
 
 # Prints the body item with the given id, from its "- type:" line to the next one.
 field_block() {
@@ -42,9 +37,4 @@ else
     done
 fi
 
-if [ "$failures" -eq 0 ]; then
-    echo "issue form tests: OK"
-else
-    echo "issue form tests: $failures failure(s)"
-    exit 1
-fi
+finish "issue form tests"

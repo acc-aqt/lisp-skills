@@ -2,16 +2,11 @@
 # Runs scripts/export-rules against a fixture plugin and against the real plugin.
 set -u
 
-root=$(cd "$(dirname "$0")/../.." && pwd)
+. "$(dirname "$0")/../lib.sh"
+
 fixture="$root/tests/export/fixtures/plugin"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-failures=0
-
-fail() {
-    echo "FAIL: $1"
-    failures=$((failures + 1))
-}
 
 expect_line() {
     grep -qxF -- "$2" "$1" || fail "$1 lacks line: $2"
@@ -46,9 +41,4 @@ else
     fail "default export did not create $default_out"
 fi
 
-if [ "$failures" -eq 0 ]; then
-    echo "export tests: OK"
-else
-    echo "export tests: $failures failure(s)"
-    exit 1
-fi
+finish "export tests"
