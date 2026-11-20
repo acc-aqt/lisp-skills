@@ -38,17 +38,19 @@ scripts/export-rules
 
 ## Running `lisp-check`
 
-`lisp-check` needs an Allegro CL binary. It uses `$LISP_BIN`, which defaults to `alisp`.
+`lisp-check` needs an Allegro CL binary. It uses `$LISP_BIN`, which defaults to `alisp`. With the plugin installed, Claude Code has `lisp-check` on its `PATH`; in a clone of this repo it is `plugins/lisp-skills/bin/lisp-check`.
 
 ```sh
-bin/lisp-check file.lisp           # read and compile
-bin/lisp-check --test file.lisp    # also run the file's tester tests
-LISP_BIN=/path/to/alisp bin/lisp-check file.lisp
+plugins/lisp-skills/bin/lisp-check file.lisp           # read and compile
+plugins/lisp-skills/bin/lisp-check --test file.lisp    # also run the file's tester tests
+LISP_BIN=/path/to/alisp plugins/lisp-skills/bin/lisp-check file.lisp
 ```
 
-The last line of the output is `OK` or `FAIL`, and the exit code matches.
+Status: only the read stage exists so far. The compile stage ([#4](https://github.com/acc-aqt/lisp-skills/issues/4)) and `--test` ([#5](https://github.com/acc-aqt/lisp-skills/issues/5)) are in progress; until then `--test` stops with `FAIL`.
 
-`make check` runs `lisp-check` over its own test files and every skill example, and runs the repo's script tests. `make docker-check` does the same inside the Docker image described below.
+Each problem is printed as `FILE:LINE: STAGE: MESSAGE`. The last line of the output is `OK` or `FAIL`; the exit code is 0 for `OK`, 1 when the file has problems and 2 when `lisp-check` could not run.
+
+`make check` runs `lisp-check` over its test files in `tests/lisp-check/` and over every `.lisp` file under a skill's `examples/` (each must print `OK`; files named `*-tests.lisp` are checked with `--test`), and runs the repo's script tests. `make docker-check` runs `make check` inside the Docker image described below.
 
 Only `alisp` has been verified. Allegro CL Express ships only `alisp`, so behaviour with `mlisp` (modern, case-sensitive mode) is **unverified**.
 

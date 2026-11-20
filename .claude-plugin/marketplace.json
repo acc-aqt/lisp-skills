@@ -1,0 +1,14 @@
+{
+  "name": "lisp-skills",
+  "owner": {
+    "name": "acc-aqt"
+  },
+  "description": "Skills that help agents write and verify Common Lisp for Allegro CL.",
+  "plugins": [
+    {
+      "name": "lisp-skills",
+      "source": "./plugins/lisp-skills",
+      "description": "Write, structure and verify Common Lisp for Allegro CL, with the lisp-check command."
+    }
+  ]
+}
