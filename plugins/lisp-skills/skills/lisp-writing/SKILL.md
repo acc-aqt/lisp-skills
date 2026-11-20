@@ -97,6 +97,29 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - Keep a function short and give it a docstring.
 - Unused argument: `(declare (ignore x))` as the first form of the body.
 
+## Bracket structure
+
+- Put a form's closing parens at the end of its last line, all together:
+  `(incf count)))`. Never put `)` on a line of its own.
+- Start each sub-form on its own line, indented under its parent. The
+  indentation then shows which form each line belongs to.
+
+From `examples/parens-tests.lisp`:
+
+```lisp
+(defun count-long (words)
+  (let ((count 0))
+    (dolist (word words)
+      (when (> (length word) 3)
+        (incf count)))
+    count))
+```
+
+After writing a form, check that its parens match its indentation. A `)` in
+the wrong place often still compiles, but the code does something else.
+Common misplacements, each with a wrong and a right version:
+`references/parens.md`.
+
 ## Packages
 
 Start each file with its package (from `examples/greeting.lisp`):
@@ -127,6 +150,7 @@ Open a reference when you write that kind of code:
 - `references/clos.md`: `defclass`, `defgeneric`, `defmethod`, `print-object`.
 - `references/conditions.md`: `handler-case`, `define-condition`, restarts,
   `unwind-protect`.
+- `references/parens.md`: misplaced parens in `when`, `if`, `cond` and `defun`.
 - `references/allegro.md`: shell commands, `excl:` string and regexp utilities,
   environment variables, case mode.
 
