@@ -50,10 +50,53 @@ or inside a ; comment."
               (report (line-at (1- (file-position in))) "read" condition)
               (return nil))))))))
 
+(defun warning-line (condition)
+  "Return the line of the top-level form CONDITION was signalled for, or NIL.
+Uses Allegro internals, so any surprise yields NIL."
+  (let* ((plist (ignore-errors (slot-value condition 'excl::plist)))
+         (position (or (second (getf plist :loc))
+                       (ignore-errors
+                        (excl::source-context-start-char (getf plist :source-context))))))
+    (when (integerp position)
+      (line-at position))))
+
+(defun fasl-path ()
+  (format nil "/tmp/lisp-check-~d.fasl" (excl::getpid)))
+
+(defun compile-stage ()
+  "Compile *FILE* into a temporary fasl. Every warning is a problem."
+  (let ((ok t)
+        (fasl (fasl-path))
+        (error-position nil))
+    (unwind-protect
+         (handler-case
+             (handler-bind ((warning
+                              (lambda (condition)
+                                (setf ok nil)
+                                (report (warning-line condition) "compile"
+                                        (format nil "~:[warning~;style-warning~]: ~a"
+                                                (typep condition 'style-warning)
+                                                (one-line condition)))
+                                (muffle-warning condition)))
+                            (stream-error
+                              (lambda (condition)
+                                (setf error-position
+                                      (ignore-errors
+                                       (file-position (stream-error-stream condition)))))))
+               (let ((*package* (find-package :cl-user)))
+                 (compile-file *file* :output-file fasl :verbose nil :print nil
+                                      :external-format :utf-8)))
+           (error (condition)
+             (setf ok nil)
+             (report (and error-position (line-at (1- error-position)))
+                     "compile" condition)))
+      (ignore-errors (delete-file fasl)))
+    ok))
+
 (defun main ()
   (let* ((*file* (second (sys:command-line-arguments :application t)))
          (*text* (file-text *file*))
-         (ok (read-stage)))
+         (ok (and (read-stage) (compile-stage))))
     (format t "~:[FAIL~;OK~]~%" ok)
     (finish-output)
     (excl:exit (if ok 0 1) :quiet t)))

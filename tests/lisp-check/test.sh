@@ -4,6 +4,7 @@
 #
 #   ;;; expect: OK | FAIL      required: the summary line; OK means exit 0, FAIL non-zero
 #   ;;; expect-output: TEXT    optional, repeatable: TEXT appears in the output
+#   ;;; expect-no-output: TEXT optional, repeatable: TEXT does not appear in the output
 #   ;;; flags: --test          optional: extra lisp-check arguments
 set -u
 
@@ -50,6 +51,13 @@ check_fixture() {
     if [ -n "$missing" ]; then
         fail "$name: output lacks: $missing"
     fi
+
+    unwanted=$(header "$name" expect-no-output | while IFS= read -r text; do
+        printf '%s\n' "$output" | grep -qF -- "$text" && printf '%s\n' "$text"
+    done)
+    if [ -n "$unwanted" ]; then
+        fail "$name: output must not contain: $unwanted"
+    fi
 }
 
 cd "$root" || exit 1
@@ -64,6 +72,8 @@ for fixture in tests/lisp-check/*.lisp; do
 done
 
 [ "$count" -gt 0 ] || fail "no fixtures found in tests/lisp-check/"
+leftovers=$(find tests/lisp-check /tmp -maxdepth 1 -name '*.fasl' 2>/dev/null)
+[ -z "$leftovers" ] || fail "compiled files were left behind: $leftovers"
 
 # expect_run DESCRIPTION WANT_STATUS WANT_TEXT COMMAND...
 expect_run() {
