@@ -70,6 +70,36 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
 
+### Stage `compile`
+
+The file reads, and `lisp-check` compiled it. Every compiler warning is a
+problem, including a style warning.
+
+```
+src/math.lisp:5: compile: style-warning: Variable B is never used.
+src/math.lisp:12: compile: warning: CAR should be given exactly 1 argument.  It was given 2 arguments.
+src/math.lisp:20: compile: Package "UTILS" not found.
+FAIL
+```
+
+`LINE` is where the **top-level form** containing the problem starts, usually
+a `defun`. Search that whole form for the name in the message. To fix the
+first warning:
+
+- `Variable B is never used`: remove `B`, use it, or add
+  `(declare (ignore b))` when the argument must stay.
+- `Free reference to undeclared variable *X*`: define `*X*` with
+  `defvar` or `defparameter` above its first use, or fix the misspelled name.
+- `undefined functions were referenced: F`: define `F`, fix the misspelled
+  name, or add the package prefix.
+- Wrong number of arguments: match the call to the function's lambda list.
+- `Package "P" not found`: fix the package name, or define the package
+  with `defpackage` before the code that uses it.
+
+Fix the cause in the code so the warning goes away. The one declaration that
+counts as a fix is `(declare (ignore ...))` for an argument the function must
+accept but does not use.
+
 ### Lines that start with `lisp-check:`
 
 ```
