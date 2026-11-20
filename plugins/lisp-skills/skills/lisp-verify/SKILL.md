@@ -82,6 +82,34 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
 
+### Stage `structure`
+
+The file reads, but a line's indentation does not match where the parens put
+it. Usually a `)` is in the wrong place, so a form ended up inside a `let`,
+`when` or `if` branch that should have closed before it.
+
+```
+src/math.lisp:11: structure: line is indented as if it came after the (let form starting at line 9, but the parens keep it inside that form; by its indentation it belongs in the (defun form starting at line 8
+FAIL
+```
+
+Line 11 is indented like the next form after the `let` on line 9, but the
+`let`'s closing `)` comes later, so line 11 is inside the `let`. To fix it:
+
+1. Work out what the code should do: should line 11 be inside the `let` on
+   line 9, or come after it?
+2. If it should come after it, move the `)` that closes the `let` so the
+   `let` ends before line 11. Remove the same number of `)` at the end of the
+   form, so the parens still balance.
+3. Never re-indent the code only to make this check pass. That hides the
+   misplaced `)` and leaves the program wrong.
+4. If the parens are right and only the indentation is wrong, re-indent that
+   one form so each line sits to the right of the `(` of the form it is in.
+
+Indent with spaces. A tab in a line's indentation is reported as
+`indentation contains a tab; indent with spaces only`, and the rest of the
+file is not checked for structure until the tabs are replaced with spaces.
+
 ### Stage `system`
 
 The file is in a project (a `.asd` in its directory or a parent), and
