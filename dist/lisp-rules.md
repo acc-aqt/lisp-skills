@@ -93,7 +93,9 @@ needs in the project, or ask the user.
 
 ### Loading and testing
 
-```lisp
+At the REPL, with the `.asd` file's absolute path:
+
+```lisp repl
 (require :asdf)
 (asdf:load-asd #p"/path/to/tally/tally.asd")
 (asdf:load-system "tally")
@@ -316,21 +318,27 @@ accept but does not use.
 ### Tests for `lisp-check --test`
 
 `lisp-check --test` loads the compiled file, and loading runs every top-level
-`tester` assertion in it. Write test files in this shape:
+`tester` assertion in it. Write test files in the shape of
+`examples/count-words-tests.lisp`, which passes `lisp-check --test`. It starts:
 
 ```lisp
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :tester))
 
-(defpackage :math-tests
+(defpackage :count-words-tests
   (:use :cl :util.test))
 
-(in-package :math-tests)
+(in-package :count-words-tests)
+```
 
-(test 2 (add1 1))
-(test "ab" (concatenate 'string "a" "b") :test #'string=)
-(test '(1 2) (list 1 2) :test #'equal)
-(test-error (parse-age "x"))
+then defines `count-words` and `first-word`, and ends with the assertions:
+
+```lisp
+(test 0 (count-words ""))
+(test 3 (count-words "  read  compile test "))
+(test '(0 1 2) (mapcar #'count-words '("" "lisp" "a b")) :test #'equal)
+(test "read" (first-word "  read compile") :test #'string=)
+(test-error (first-word "   "))
 ```
 
 - Name the file `NAME-tests.lisp`.
@@ -360,7 +368,7 @@ accept but does not use.
 Test failed: (ADD1 1)
   wanted: 5
      got: 2
-src/math-tests.lisp:?: test: 1 of 4 assertions failed
+src/math-tests.lisp:?: test: 1 of 2 assertions failed
 FAIL
 ```
 

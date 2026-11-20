@@ -47,7 +47,7 @@ shapes/
 
 ## Loading a project by hand
 
-```lisp
+```lisp repl
 (require :asdf)
 (asdf:load-asd #p"/path/to/shapes/shapes.asd")   ; absolute path
 (asdf:load-system "shapes")

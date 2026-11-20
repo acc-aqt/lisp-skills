@@ -90,7 +90,9 @@ needs in the project, or ask the user.
 
 ## Loading and testing
 
-```lisp
+At the REPL, with the `.asd` file's absolute path:
+
+```lisp repl
 (require :asdf)
 (asdf:load-asd #p"/path/to/tally/tally.asd")
 (asdf:load-system "tally")
