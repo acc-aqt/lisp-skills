@@ -51,6 +51,111 @@ syntax is checked."
               (report file (line-at text (1- (file-position in))) "read" condition)
               (return nil))))))))
 
+(defstruct (open-paren (:constructor make-open-paren (line column head)))
+  line column head)
+
+(defun form-head (text position)
+  "Return the token starting at POSITION in TEXT, right after a (, such as
+\"let\". It is empty when the ( is followed by another ( or a space."
+  (let ((end (or (position-if (lambda (char)
+                                (member char '(#\Space #\Tab #\Newline #\Return
+                                               #\( #\) #\" #\;)))
+                              text :start position)
+                 (length text))))
+    (subseq text position end)))
+
+(defun describe-form (paren)
+  (cond ((null paren) "top level")
+        ((string= (open-paren-head paren) "")
+         (format nil "the form starting at line ~d" (open-paren-line paren)))
+        (t (format nil "the (~a form starting at line ~d"
+                   (open-paren-head paren) (open-paren-line paren)))))
+
+(defun indentation-problem (open column)
+  "Return a message if a line indented to COLUMN contradicts OPEN, the parens
+still open at its start, innermost first; else NIL. The line is wrong when it
+sits at or left of an open paren: it looks like it comes after that form."
+  (let ((outside (find-if (lambda (paren) (>= (open-paren-column paren) column))
+                          open :from-end t)))
+    (when outside
+      (format nil "line is indented as if it came after ~a, but the parens keep it inside that form; by its indentation it belongs in ~a"
+              (describe-form outside)
+              (describe-form (find-if (lambda (paren) (< (open-paren-column paren) column))
+                                      open))))))
+
+(defun line-indentation (text start)
+  "Return the indentation of the line starting at START in TEXT as
+(values COLUMN TABP), or NIL when the line is blank or a comment."
+  (let* ((end (or (position-if-not (lambda (char) (member char '(#\Space #\Tab)))
+                                   text :start start)
+                  (length text)))
+         (first (and (< end (length text)) (char text end))))
+    (unless (or (null first)
+                (member first '(#\Newline #\Return #\;))
+                (and (char= first #\#)
+                     (< (1+ end) (length text))
+                     (char= (char text (1+ end)) #\|)))
+      (values (- end start) (find #\Tab text :start start :end end)))))
+
+(defun structure-stage (file text)
+  "Compare the indentation of each code line in TEXT, the contents of FILE,
+with the paren nesting at its start. Strings, comments, |symbols| and escaped
+characters such as #\\( are skipped, and lines starting inside a string or
+block comment are not checked. Indentation must be spaces: the first tab found
+in indentation is reported and ends the stage."
+  (let ((ok t) (open '()) (line 1) (column 0) (escaped nil)
+        (in-string nil) (in-bars nil) (in-comment nil) (block-depth 0))
+    (labels ((problem (message)
+               (setf ok nil)
+               (report file line "structure" message))
+             (check-line (start)
+               (multiple-value-bind (indent tabp) (line-indentation text start)
+                 (cond ((null indent))
+                       (tabp
+                        (problem "indentation contains a tab; indent with spaces only")
+                        (return-from structure-stage nil))
+                       (t (let ((message (indentation-problem open indent)))
+                            (when message (problem message)))))))
+             (next-is (i char)
+               (and (< (1+ i) (length text)) (char= (char text (1+ i)) char))))
+      (check-line 0)
+      (loop for i from 0 below (length text)
+            for char = (char text i)
+            for skip = escaped
+            do (setf escaped nil)
+               (cond (skip)
+                     (in-comment (when (char= char #\Newline) (setf in-comment nil)))
+                     (in-string (case char
+                                  (#\\ (setf escaped t))
+                                  (#\" (setf in-string nil))))
+                     (in-bars (case char
+                                (#\\ (setf escaped t))
+                                (#\| (setf in-bars nil))))
+                     ((plusp block-depth)
+                      (cond ((and (char= char #\|) (next-is i #\#))
+                             (decf block-depth)
+                             (setf escaped t))
+                            ((and (char= char #\#) (next-is i #\|))
+                             (incf block-depth)
+                             (setf escaped t))))
+                     (t (case char
+                          (#\" (setf in-string t))
+                          (#\| (setf in-bars t))
+                          (#\\ (setf escaped t))
+                          (#\; (setf in-comment t))
+                          (#\# (when (next-is i #\|)
+                                 (incf block-depth)
+                                 (setf escaped t)))
+                          (#\( (push (make-open-paren line column (form-head text (1+ i)))
+                                     open))
+                          (#\) (pop open)))))
+               (cond ((char/= char #\Newline) (incf column))
+                     (t (incf line)
+                        (setf column 0)
+                        (unless (or skip in-string in-bars (plusp block-depth))
+                          (check-line (1+ i)))))))
+    ok))
+
 (defun warning-line (text condition)
   "Return the line in TEXT of the top-level form CONDITION was signalled for,
 or NIL. Uses Allegro internals, so any surprise yields NIL."
@@ -190,10 +295,12 @@ Tester prints each failing assertion itself; this adds one summary line."
          (fasl (fasl-path))
          (ok (unwind-protect
                   (and (read-stage file text)
-                       (system-stage file)
-                       (compile-stage file text fasl)
-                       (or (not (member "--test" arguments :test #'string=))
-                           (test-stage file fasl)))
+                       (let ((structure-ok (structure-stage file text)))
+                         (and (system-stage file)
+                              (compile-stage file text fasl)
+                              (or (not (member "--test" arguments :test #'string=))
+                                  (test-stage file fasl))
+                              structure-ok)))
                (ignore-errors (delete-file fasl)))))
     (format t "~:[FAIL~;OK~]~%" ok)
     (finish-output)
