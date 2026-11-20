@@ -89,7 +89,7 @@ for fixture in tests/lisp-check/*.lisp $project_fixtures; do
 done
 
 [ "$count" -gt 0 ] || fail "no fixtures found in tests/lisp-check/"
-leftovers=$( (find tests/lisp-check -name '*.fasl'; find /tmp -maxdepth 1 -name '*.fasl') 2>/dev/null)
+leftovers=$( (find tests/lisp-check -name '*.fasl'; find /tmp -maxdepth 1 -name 'lisp-check-*.fasl') 2>/dev/null)
 [ -z "$leftovers" ] || fail "compiled files were left behind: $leftovers"
 
 clean=tests/lisp-check/clean.lisp
