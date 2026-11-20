@@ -18,6 +18,8 @@
 (test 3 (word-count *counts* "THE"))
 (test 0 (word-count *counts* "dog"))
 (test 5 (hash-table-count *counts*))
+;; gethash returns two values; test wants one, so keep the first with values.
+(test 2 (values (gethash "and" *counts*)))
 (test '(("the" . 3) ("and" . 2) ("bat" . 1))
       (top-words *counts* 3)
       :test #'equal)
