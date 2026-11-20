@@ -71,10 +71,13 @@ syntax is checked."
         (t (format nil "the (~a form starting at line ~d"
                    (open-paren-head paren) (open-paren-line paren)))))
 
-(defun indentation-problem (open column)
-  "Return a message if a line indented to COLUMN contradicts OPEN, the parens
-still open at its start, innermost first; else NIL. The line is wrong when it
-sits at or left of an open paren: it looks like it comes after that form."
+(defstruct (closed-paren (:constructor make-closed-paren (paren depth line)))
+  paren depth line)
+
+(defun outside-problem (open column)
+  "Return a message if a line indented to COLUMN sits at or left of a paren in
+OPEN, the parens still open at its start, innermost first; else NIL. The line
+looks like it comes after that form, but the parens keep it inside."
   (let ((outside (find-if (lambda (paren) (>= (open-paren-column paren) column))
                           open :from-end t)))
     (when outside
@@ -82,6 +85,32 @@ sits at or left of an open paren: it looks like it comes after that form."
               (describe-form outside)
               (describe-form (find-if (lambda (paren) (< (open-paren-column paren) column))
                                       open))))))
+
+(defun inside-closed-problem (open closed column)
+  "Return a message if a line indented to COLUMN sits right of a paren in
+CLOSED that was nested deeper than the innermost paren in OPEN; else NIL.
+The line looks like it is inside that form, but the form is already closed.
+Of several such parens, the deepest is named."
+  (let ((inside nil))
+    (dolist (entry closed)
+      (when (and (< (open-paren-column (closed-paren-paren entry)) column)
+                 (> (closed-paren-depth entry) (length open))
+                 (or (null inside)
+                     (> (closed-paren-depth entry) (closed-paren-depth inside))))
+        (setf inside entry)))
+    (when inside
+      (format nil "line is indented as if it were inside ~a, but that form was closed on line ~d; by the parens it is ~:[in ~a~;at top level~]"
+              (describe-form (closed-paren-paren inside))
+              (closed-paren-line inside)
+              (null open)
+              (describe-form (first open))))))
+
+(defun indentation-problem (open closed column)
+  "Return a message if a line indented to COLUMN contradicts the paren nesting
+at its start, else NIL. OPEN holds the parens still open, innermost first;
+CLOSED the parens closed since the previous code line, latest first."
+  (or (outside-problem open column)
+      (inside-closed-problem open closed column)))
 
 (defun line-indentation (text start)
   "Return the indentation of the line starting at START in TEXT as
@@ -104,7 +133,7 @@ with the paren nesting at its start. Strings, comments, |symbols| and escaped
 characters such as #\\( are skipped, and lines starting inside a string or
 block comment are not checked. Indentation must be spaces: the first tab found
 in indentation is reported and ends the stage."
-  (let ((ok t) (open '()) (line 1) (column 0) (escaped nil)
+  (let ((ok t) (open '()) (closed '()) (line 1) (column 0) (escaped nil)
         (in-string nil) (in-bars nil) (in-comment nil) (block-depth 0))
     (labels ((problem (message)
                (setf ok nil)
@@ -115,7 +144,8 @@ in indentation is reported and ends the stage."
                        (tabp
                         (problem "indentation contains a tab; indent with spaces only")
                         (return-from structure-stage nil))
-                       (t (let ((message (indentation-problem open indent)))
+                       (t (let ((message (indentation-problem open closed indent)))
+                            (setf closed '())
                             (when message (problem message)))))))
              (next-is (i char)
                (and (< (1+ i) (length text)) (char= (char text (1+ i)) char))))
@@ -149,7 +179,11 @@ in indentation is reported and ends the stage."
                                  (setf escaped t)))
                           (#\( (push (make-open-paren line column (form-head text (1+ i)))
                                      open))
-                          (#\) (pop open)))))
+                          (#\) (let ((depth (length open))
+                                      (paren (pop open)))
+                                  (when paren
+                                    (push (make-closed-paren paren depth line)
+                                          closed)))))))
                (cond ((char/= char #\Newline) (incf column))
                      (t (incf line)
                         (setf column 0)
