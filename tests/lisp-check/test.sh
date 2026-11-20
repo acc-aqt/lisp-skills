@@ -61,7 +61,10 @@ check_fixture() {
 }
 
 cd "$root" || exit 1
-for fixture in tests/lisp-check/*.lisp; do
+# Every top-level .lisp file is a fixture. Under projects/, which holds small
+# ASDF projects, only files with an expect header are; the rest are project source.
+project_fixtures=$(grep -rlx --include='*.lisp' ';;; expect: .*' tests/lisp-check/projects | sort)
+for fixture in tests/lisp-check/*.lisp $project_fixtures; do
     [ -f "$fixture" ] || continue
     count=$((count + 1))
     before=$failures
@@ -72,7 +75,7 @@ for fixture in tests/lisp-check/*.lisp; do
 done
 
 [ "$count" -gt 0 ] || fail "no fixtures found in tests/lisp-check/"
-leftovers=$(find tests/lisp-check /tmp -maxdepth 1 -name '*.fasl' 2>/dev/null)
+leftovers=$( (find tests/lisp-check -name '*.fasl'; find /tmp -maxdepth 1 -name '*.fasl') 2>/dev/null)
 [ -z "$leftovers" ] || fail "compiled files were left behind: $leftovers"
 
 # expect_run DESCRIPTION WANT_STATUS WANT_TEXT COMMAND...

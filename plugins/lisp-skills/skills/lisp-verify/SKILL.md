@@ -44,7 +44,6 @@ Each problem is one line:
 FILE:LINE: STAGE: MESSAGE
 ```
 
-- `FILE` is the file you checked.
 - `LINE` is the line number to look at. `?` means the line is unknown.
 - `STAGE` says which check found the problem.
 - `MESSAGE` says what is wrong.
@@ -82,6 +81,12 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
+
+### Stage `system`
+
+The file is in a project (a `.asd` in its directory or a parent), and
+`lisp-check` could not load that ASDF system. Run `lisp-check` on the project
+file the message names and fix it first, or fix the `.asd` (lisp-project skill).
 
 ### Stage `compile`
 
@@ -143,8 +148,3 @@ lisp-check --test path/to/file-tests.lisp
 - If the shell says `lisp-check: command not found`, run the `bin/lisp-check`
   script from the lisp-skills plugin by its full path. In Claude Code that is
   `${CLAUDE_PLUGIN_ROOT}/bin/lisp-check`.
-
-## Examples
-
-`examples/clean.lisp` passes `lisp-check`, and
-`examples/count-words-tests.lisp` passes `lisp-check --test`.

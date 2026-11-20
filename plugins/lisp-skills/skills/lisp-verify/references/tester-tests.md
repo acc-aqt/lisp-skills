@@ -26,6 +26,13 @@
   only; assertions inside `with-tests` give `no tester assertions ran`.
 - `(test WANTED FORM)` compares with `eql`. Compare strings with
   `:test #'string=` and lists with `:test #'equal`.
+- `test` fails with `additional value were returned from test form` when
+  FORM returns more than one value, as `gethash`, `parse-integer` and
+  `read-line` do. Keep only the first value:
+  `(test 2 (values (gethash "and" *counts*)))`.
+- A tests file for a project uses the project's package:
+  `(:use :cl :util.test :tally)`. `lisp-check` loads the project's `.asd`
+  first (lisp-project skill).
 - `(test-error FORM)` passes when FORM signals a `simple-error`, which
   `(error "...")` does. For another condition class add
   `:condition-type 'CLASS`. Test errors your code signals itself: compiled
