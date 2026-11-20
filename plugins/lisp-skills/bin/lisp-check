@@ -3,6 +3,8 @@
 #
 # Usage: lisp-check [--test] FILE
 # --test also loads the compiled file and runs its tester (util.test) assertions.
+# If FILE's directory or a parent (up to the one holding .git) has *.asd files,
+# those systems are loaded through ASDF first, so FILE can use their packages.
 # LISP_BIN names the Lisp binary (default: alisp).
 # Prints problems as FILE:LINE: STAGE: MESSAGE, then exactly one OK or FAIL line.
 # Exit status: 0 OK, 1 the file has problems, 2 lisp-check could not run.

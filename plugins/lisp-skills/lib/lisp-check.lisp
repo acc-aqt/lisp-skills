@@ -60,6 +60,67 @@ Uses Allegro internals, so any surprise yields NIL."
     (when (integerp position)
       (line-at position))))
 
+(defun parent-directory (directory)
+  (let ((parts (pathname-directory directory)))
+    (when (rest parts)
+      (make-pathname :directory (butlast parts) :name nil :type nil :defaults directory))))
+
+(defun project-asd-files ()
+  "Return the *.asd files of the nearest directory, starting at *FILE*'s own and
+going up, that has any. The search stops after a directory holding .git."
+  (loop for directory = (make-pathname :name nil :type nil :defaults (truename *file*))
+          then (parent-directory directory)
+        while directory
+        do (let ((asd-files (directory (merge-pathnames "*.asd" directory))))
+             (when asd-files
+               (return (sort asd-files #'string< :key #'namestring)))
+             (when (probe-file (merge-pathnames ".git" directory))
+               (return nil)))))
+
+(defun asdf-call (name &rest arguments)
+  (apply (find-symbol name :asdf) arguments))
+
+(defun require-asdf ()
+  "Load ASDF quietly and keep its compiled files under /tmp, out of the project."
+  (let ((*load-verbose* nil))
+    (require :streama)
+    (require :asdf))
+  (asdf-call "INITIALIZE-OUTPUT-TRANSLATIONS"
+             '(:output-translations (t ("/tmp/lisp-check-asdf/" :implementation))
+               :ignore-inherited-configuration)))
+
+(defun call-quietly (function)
+  (let* ((quiet (make-broadcast-stream))
+         (*standard-output* quiet)
+         (*error-output* quiet)
+         (*package* (find-package :cl-user)))
+    (handler-bind ((warning #'muffle-warning))
+      (funcall function))))
+
+(defun load-systems (asd-files)
+  "Register every ASD-FILE, then load the system named like each one."
+  (dolist (step '("LOAD-ASD" "LOAD-SYSTEM") t)
+    (dolist (asd-file asd-files)
+      (handler-case
+          (call-quietly (lambda ()
+                          (asdf-call step (if (string= step "LOAD-ASD")
+                                              asd-file
+                                              (pathname-name asd-file)))))
+        (error (condition)
+          (report nil "system"
+                  (format nil "could not load system ~s from ~a: ~a"
+                          (pathname-name asd-file) (namestring asd-file)
+                          (one-line condition)))
+          (return-from load-systems nil))))))
+
+(defun system-stage ()
+  "Load the systems of *FILE*'s project, if it has any, so the file can use the
+project's packages. Warnings are left to the compile stage."
+  (let ((asd-files (project-asd-files)))
+    (or (null asd-files)
+        (progn (require-asdf)
+               (load-systems asd-files)))))
+
 (defun fasl-path ()
   (format nil "/tmp/lisp-check-~d.fasl" (excl::getpid)))
 
@@ -126,6 +187,7 @@ Tester prints each failing assertion itself; this adds one summary line."
          (fasl (fasl-path))
          (ok (unwind-protect
                   (and (read-stage)
+                       (system-stage)
                        (compile-stage fasl)
                        (or (not (member "--test" arguments :test #'string=))
                            (test-stage fasl)))
