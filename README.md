@@ -33,8 +33,10 @@ It contains generic Common Lisp and Allegro CL knowledge only.
 Point the harness's rules or system-prompt file setting at [`dist/lisp-rules.md`](dist/lisp-rules.md), or copy the file into your project. It is generated from the skills; after changing a skill, rebuild it with:
 
 ```sh
-scripts/export-rules
+make export    # or: scripts/export-rules
 ```
+
+`make check` fails while the committed file is out of date with the skills.
 
 ## Running `lisp-check`
 

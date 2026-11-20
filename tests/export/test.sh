@@ -1,5 +1,7 @@
 #!/bin/sh
-# Runs scripts/export-rules against a fixture plugin and against the real plugin.
+# Runs scripts/export-rules against a fixture plugin and against the real
+# plugin, and checks that the committed dist/lisp-rules.md is up to date.
+# Never writes to dist/.
 set -u
 
 . "$(dirname "$0")/../lib.sh"
@@ -29,16 +31,17 @@ else
     fail "export did not create $out"
 fi
 
-default_out="$root/dist/lisp-rules.md"
-(unset PLUGIN_DIR; "$root/scripts/export-rules") || fail "default export exited non-zero"
-if [ -f "$default_out" ]; then
-    head -n 1 "$default_out" | grep -q 'GENERATED' || fail "default export lacks the generated notice"
+committed="$root/dist/lisp-rules.md"
+fresh="$tmp/lisp-rules.md"
+(unset PLUGIN_DIR; "$root/scripts/export-rules" "$fresh") || fail "export of the real plugin exited non-zero"
+if [ -f "$fresh" ]; then
     for skill_dir in "$root"/plugins/lisp-skills/skills/*/; do
         [ -f "$skill_dir/SKILL.md" ] || continue
-        expect_line "$default_out" "## $(basename "$skill_dir")"
+        expect_line "$fresh" "## $(basename "$skill_dir")"
     done
+    cmp -s "$fresh" "$committed" || fail "dist/lisp-rules.md is stale; run scripts/export-rules (or make export)"
 else
-    fail "default export did not create $default_out"
+    fail "export of the real plugin did not create $fresh"
 fi
 
 finish "export tests"
