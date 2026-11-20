@@ -24,6 +24,13 @@ so they may disappear once it is fixed.
 Finish the loop before you report the work as done. When you report, say that
 `lisp-check` printed `OK` for each file.
 
+## Editing an existing file
+
+Replace a complete top-level form: from the `(` of its `defun` (or other
+top-level form) to its last `)`. Write the new form in full, with all its
+closing parens. Never replace only part of a form; the closing `)))` of the
+changed function must stay intact.
+
 ## When to use `--test`
 
 `--test` also loads the compiled file, which runs its top-level `tester`
