@@ -1,6 +1,6 @@
 IMAGE ?= lisp-skills-allegro
 
-.PHONY: check check-lisp-check check-examples check-export check-issue-form docker-check
+.PHONY: check check-lisp-check check-examples check-export check-issue-form docker-check export
 
 check: check-lisp-check check-examples check-export check-issue-form
 
@@ -18,3 +18,6 @@ check-issue-form:
 
 docker-check:
 	docker run --rm --platform linux/amd64 -v "$(CURDIR)":/work $(IMAGE) make check
+
+export:
+	sh scripts/export-rules

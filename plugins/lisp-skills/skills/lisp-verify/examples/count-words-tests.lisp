@@ -1,6 +1,6 @@
 ;;;; A test file that passes `lisp-check --test`.
 ;;;; Assertions are top-level tester forms, so loading the file runs them.
-;;;; The function under test is defined here to keep the example to one file.
+;;;; The functions under test are defined here to keep the example to one file.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :tester))
@@ -22,6 +22,15 @@
                    (incf count))))
     count))
 
+(defun first-word (text)
+  "Return the first space-separated word of TEXT. Signal an error if TEXT has none."
+  (let ((start (position #\Space text :test-not #'char=)))
+    (unless start
+      (error "No words in ~s." text))
+    (subseq text start (position #\Space text :start start))))
+
 (test 0 (count-words ""))
-(test 1 (count-words "lisp"))
 (test 3 (count-words "  read  compile test "))
+(test '(0 1 2) (mapcar #'count-words '("" "lisp" "a b")) :test #'equal)
+(test "read" (first-word "  read compile") :test #'string=)
+(test-error (first-word "   "))

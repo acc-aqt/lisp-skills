@@ -53,7 +53,9 @@ Control printing with `print-object`:
 (defmethod print-object ((shape rectangle) stream)
   (print-unreadable-object (shape stream :type t)
     (format stream "~ax~a" (rectangle-width shape) (rectangle-height shape))))
-;; prints #<RECTANGLE 3x4>
+
+(test "#<RECTANGLE 3x4>" (princ-to-string (make-instance 'rectangle :width 3 :height 4))
+      :test #'string=)
 ```
 
 - Change a slot through its accessor: `(setf (rectangle-width r) 10)`.

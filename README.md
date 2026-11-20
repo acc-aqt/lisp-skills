@@ -33,8 +33,10 @@ It contains generic Common Lisp and Allegro CL knowledge only.
 Point the harness's rules or system-prompt file setting at [`dist/lisp-rules.md`](dist/lisp-rules.md), or copy the file into your project. It is generated from the skills; after changing a skill, rebuild it with:
 
 ```sh
-scripts/export-rules
+make export    # or: scripts/export-rules
 ```
+
+`make check` fails while the committed file is out of date with the skills.
 
 ## Running `lisp-check`
 
@@ -48,7 +50,7 @@ LISP_BIN=/path/to/alisp plugins/lisp-skills/bin/lisp-check file.lisp
 
 If the file belongs to an ASDF project, that is, its directory or a parent (up to the one holding `.git`) contains `*.asd` files, `lisp-check` loads the system named like each `.asd` before compiling the file (`foo.asd` → system `"foo"`), so a file such as `foo-tests.lisp` can use the project's packages. A system that fails to load is reported as `FILE:?: system: MESSAGE`. ASDF's compiled files go to `/tmp/lisp-check-asdf/`, never into the project. A file that reads cleanly is compiled with `compile-file` into a temporary fasl that is deleted afterwards. Any compiler warning, style warnings included, fails the check. With `--test`, the compiled file is then loaded, which runs its top-level `tester` (`util.test`) assertions; a failed assertion, an error while loading, or a file with no assertions fails the check. Each problem is printed as `FILE:LINE: STAGE: MESSAGE`. The last line of the output is `OK` or `FAIL`; the exit code is 0 for `OK`, 1 when the file has problems and 2 when `lisp-check` could not run.
 
-`make check` runs `lisp-check` over its test files in `tests/lisp-check/` and over every `.lisp` file under a skill's `examples/` (each must print `OK`; files named `*-tests.lisp` are checked with `--test`), and runs the repo's script tests. `make docker-check` runs `make check` inside the Docker image described below.
+`make check` runs `lisp-check` over its test files in `tests/lisp-check/` and over every `.lisp` file under a skill's `examples/` (each must print `OK`; files named `*-tests.lisp` are checked with `--test`), runs each code block marked `lisp repl` in the skills in a fresh Lisp (its tester assertions must pass), and runs the repo's script tests. `make docker-check` runs `make check` inside the Docker image described below.
 
 Only `alisp` has been verified. Allegro CL Express ships only `alisp`, so behaviour with `mlisp` (modern, case-sensitive mode) is **unverified**.
 

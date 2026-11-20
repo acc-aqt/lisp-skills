@@ -7,36 +7,21 @@
 #   ;;; expect-no-output: TEXT optional, repeatable: TEXT does not appear in the output
 #   ;;; flags: --test          optional: extra lisp-check arguments
 set -u
+. "$(dirname "$0")/../lib.sh"
 
-root=$(cd "$(dirname "$0")/../.." && pwd)
 check="$root/plugins/lisp-skills/bin/lisp-check"
-failures=0
 count=0
-
-fail() {
-    echo "FAIL: $1"
-    failures=$((failures + 1))
-}
 
 header() {
     sed -n "s/^;;; $2: //p" "$1"
 }
 
-check_fixture() {
-    name=$1
-    expected=$(header "$name" expect)
-    flags=$(header "$name" flags)
-    if [ "$expected" != OK ] && [ "$expected" != FAIL ]; then
-        fail "$name has no ';;; expect: OK' or ';;; expect: FAIL' line"
-        return
-    fi
-
-    # shellcheck disable=SC2086
-    output=$("$check" $flags "$name" 2>&1)
-    status=$?
+# check_summary NAME EXPECTED STATUS OUTPUT: the last line, exit status and
+# number of OK/FAIL lines agree with EXPECTED.
+check_summary() {
+    name=$1 expected=$2 status=$3 output=$4
     last=$(printf '%s\n' "$output" | tail -n 1)
     summaries=$(printf '%s\n' "$output" | grep -cxE 'OK|FAIL')
-
     [ "$last" = "$expected" ] || fail "$name: last line is '$last', expected '$expected'"
     if [ "$expected" = OK ]; then
         [ "$status" -eq 0 ] || fail "$name: exit status $status, expected 0"
@@ -44,19 +29,52 @@ check_fixture() {
         [ "$status" -ne 0 ] || fail "$name: exit status 0, expected non-zero"
     fi
     [ "$summaries" -eq 1 ] || fail "$name: $summaries OK/FAIL lines, expected exactly 1"
+}
 
+# check_texts NAME OUTPUT: every expect-output text appears in OUTPUT and no
+# expect-no-output text does.
+check_texts() {
+    name=$1 output=$2
     missing=$(header "$name" expect-output | while IFS= read -r text; do
         printf '%s\n' "$output" | grep -qF -- "$text" || printf '%s\n' "$text"
     done)
-    if [ -n "$missing" ]; then
-        fail "$name: output lacks: $missing"
-    fi
-
+    [ -z "$missing" ] || fail "$name: output lacks: $missing"
     unwanted=$(header "$name" expect-no-output | while IFS= read -r text; do
         printf '%s\n' "$output" | grep -qF -- "$text" && printf '%s\n' "$text"
     done)
-    if [ -n "$unwanted" ]; then
-        fail "$name: output must not contain: $unwanted"
+    [ -z "$unwanted" ] || fail "$name: output must not contain: $unwanted"
+}
+
+check_fixture() {
+    name=$1
+    expected=$(header "$name" expect)
+    if [ "$expected" != OK ] && [ "$expected" != FAIL ]; then
+        fail "$name has no ';;; expect: OK' or ';;; expect: FAIL' line"
+        return
+    fi
+    flags=$(header "$name" flags)
+    # shellcheck disable=SC2086
+    output=$("$check" $flags "$name" 2>&1)
+    status=$?
+    before=$failures
+    check_summary "$name" "$expected" "$status" "$output"
+    check_texts "$name" "$output"
+    [ "$failures" -eq "$before" ] || printf '%s\n' "$output" | indent
+}
+
+# expect_run DESCRIPTION WANT_STATUS WANT_TEXT COMMAND...: COMMAND exits with
+# WANT_STATUS, prints WANT_TEXT, and ends with OK (status 0) or FAIL.
+expect_run() {
+    description=$1 want_status=$2 want_text=$3
+    shift 3
+    if [ "$want_status" -eq 0 ]; then want_last=OK; else want_last=FAIL; fi
+    output=$("$@" 2>&1)
+    status=$?
+    last=$(printf '%s\n' "$output" | tail -n 1)
+    if [ "$status" -ne "$want_status" ] || [ "$last" != "$want_last" ] \
+        || ! printf '%s\n' "$output" | grep -qF -- "$want_text"; then
+        fail "$description: exit $status, wanted $want_status with '$want_text'"
+        printf '%s\n' "$output" | indent
     fi
 }
 
@@ -67,30 +85,12 @@ project_fixtures=$(grep -rlx --include='*.lisp' ';;; expect: .*' tests/lisp-chec
 for fixture in tests/lisp-check/*.lisp $project_fixtures; do
     [ -f "$fixture" ] || continue
     count=$((count + 1))
-    before=$failures
     check_fixture "$fixture"
-    if [ "$failures" -ne "$before" ]; then
-        printf '%s\n' "$output" | sed 's/^/    | /'
-    fi
 done
 
 [ "$count" -gt 0 ] || fail "no fixtures found in tests/lisp-check/"
-leftovers=$( (find tests/lisp-check -name '*.fasl'; find /tmp -maxdepth 1 -name '*.fasl') 2>/dev/null)
+leftovers=$( (find tests/lisp-check -name '*.fasl'; find /tmp -maxdepth 1 -name 'lisp-check-*.fasl') 2>/dev/null)
 [ -z "$leftovers" ] || fail "compiled files were left behind: $leftovers"
-
-# expect_run DESCRIPTION WANT_STATUS WANT_TEXT COMMAND...
-expect_run() {
-    description=$1 want_status=$2 want_text=$3
-    shift 3
-    output=$("$@" 2>&1)
-    status=$?
-    last=$(printf '%s\n' "$output" | tail -n 1)
-    if [ "$status" -ne "$want_status" ] || [ "$last" != "$( [ "$want_status" -eq 0 ] && echo OK || echo FAIL)" ] \
-        || ! printf '%s\n' "$output" | grep -qF -- "$want_text"; then
-        fail "$description: exit $status, wanted $want_status with '$want_text'"
-        printf '%s\n' "$output" | sed 's/^/    | /'
-    fi
-}
 
 clean=tests/lisp-check/clean.lisp
 tmp=$(mktemp -d)
@@ -109,9 +109,4 @@ expect_run "missing file" 2 "no-such-file.lisp" "$check" no-such-file.lisp
 expect_run "no arguments" 2 "Usage" "$check"
 expect_run "unknown option" 2 "Usage" "$check" --bogus "$clean"
 
-if [ "$failures" -eq 0 ]; then
-    echo "lisp-check tests: OK ($count fixtures)"
-else
-    echo "lisp-check tests: $failures failure(s)"
-    exit 1
-fi
+finish "lisp-check tests" "$count fixtures"

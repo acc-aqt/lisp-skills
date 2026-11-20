@@ -3,14 +3,9 @@
 # needs-triage, and marks every field a reproducible report needs as required.
 set -u
 
-root=$(cd "$(dirname "$0")/../.." && pwd)
-form="$root/.github/ISSUE_TEMPLATE/skill-failure.yml"
-failures=0
+. "$(dirname "$0")/../lib.sh"
 
-fail() {
-    echo "FAIL: $1"
-    failures=$((failures + 1))
-}
+form="$root/.github/ISSUE_TEMPLATE/skill-failure.yml"
 
 # Prints the body item with the given id, from its "- type:" line to the next one.
 field_block() {
@@ -36,15 +31,11 @@ else
                 || fail "field is not required: $id"
         fi
     done
-    for option in lisp-writing lisp-verify lisp-project; do
+    for skill_dir in "$root"/plugins/lisp-skills/skills/*/; do
+        option=$(basename "$skill_dir")
         field_block skill | grep -qE "^        - \"?$option\"?$" \
             || fail "skill dropdown lacks option: $option"
     done
 fi
 
-if [ "$failures" -eq 0 ]; then
-    echo "issue form tests: OK"
-else
-    echo "issue form tests: $failures failure(s)"
-    exit 1
-fi
+finish "issue form tests"

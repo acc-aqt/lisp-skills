@@ -6,12 +6,11 @@
 
 Project structure for Common Lisp on Allegro CL. Use when creating or changing a .asd system, a package.lisp, a project's file layout or dependencies, or a project's tester tests.
 
-
 A Lisp project is one system definition (`NAME.asd`), one package file, the
 source files and a tests file. Copy the shape of `examples/tally/`, which
 loads through ASDF and passes `lisp-check`.
 
-## Layout
+### Layout
 
 ```
 tally/
@@ -25,7 +24,7 @@ A bigger project puts source in `src/` and tests in `tests/`, like
 `examples/shapes/`; see `references/asdf.md`. Keep the `.asd` at the
 project root.
 
-## Packages
+### Packages
 
 Define the package once, in `package.lisp`:
 
@@ -47,7 +46,7 @@ Define the package once, in `package.lisp`:
 - A tests file defines its own package, named `NAME-tests`, that `:use`s the
   package under test.
 
-## The system definition
+### The system definition
 
 From `examples/tally/tally.asd`:
 
@@ -77,7 +76,7 @@ From `examples/tally/tally.asd`:
   A file missing from the `.asd` is never loaded.
 - The tests system is separate, so loading `"tally"` does not run the tests.
 
-## Dependencies
+### Dependencies
 
 There is no Quicklisp and no other package manager, and the machine may have
 no network. A project uses only:
@@ -92,9 +91,11 @@ When the code needs a library the project does not have (for example
 `alexandria`, `cl-ppcre` or `split-sequence`), write the few functions it
 needs in the project, or ask the user.
 
-## Loading and testing
+### Loading and testing
 
-```lisp
+At the REPL, with the `.asd` file's absolute path:
+
+```lisp repl
 (require :asdf)
 (asdf:load-asd #p"/path/to/tally/tally.asd")
 (asdf:load-system "tally")
@@ -119,7 +120,7 @@ Some mistakes show only when the code loads, for example a `defmethod` whose
 arguments do not match its `defgeneric`. After changing source, run the tests
 file with `--test`.
 
-## Tests
+### Tests
 
 Write tests with Allegro's built-in `tester` module (package `util.test`),
 in `NAME-tests.lisp`, as top-level `(test ...)` forms. The file format and the
@@ -132,7 +133,7 @@ package also uses the package under test.
   (:use :cl :util.test :tally))
 ```
 
-## Case mode: alisp unless the project says otherwise
+### Case mode: alisp unless the project says otherwise
 
 Assume `alisp`, Allegro's ANSI mode, which reads `foo` and `FOO` as the same
 symbol. Switch to `mlisp` (case-sensitive) only when the project says so, for
@@ -141,20 +142,98 @@ and all `defpackage` names in lower case so it works in both. The lisp-writing
 skill has the details. (Allegro Express has no `mlisp`, so `mlisp` behaviour is
 not verified here.)
 
-## References
+### References
 
 - `references/asdf.md`: `src/` and `tests/` modules, `:depends-on` between
   components, loading a project by hand, where ASDF puts compiled files.
+
+### ASDF details
+
+ASDF 3 ships with Allegro CL: `(require :asdf)`. This file covers what the
+skill leaves out.
+
+#### Source in `src/`, tests in `tests/`
+
+`examples/shapes/` passes `lisp-check`:
+
+```
+shapes/
+  shapes.asd
+  src/package.lisp
+  src/macros.lisp
+  src/area.lisp
+  src/report.lisp          uses excl.osi, from the built-in osi module
+  tests/shapes-tests.lisp
+```
+
+```lisp
+(asdf:defsystem "shapes"
+  :depends-on ((:require "osi"))
+  :components ((:module "src"
+                :components ((:file "package")
+                             (:file "macros" :depends-on ("package"))
+                             (:file "area" :depends-on ("package" "macros"))
+                             (:file "report" :depends-on ("area")))))
+  :in-order-to ((test-op (load-op "shapes/tests"))))
+
+(asdf:defsystem "shapes/tests"
+  :depends-on ("shapes" (:require "tester"))
+  :components ((:module "tests"
+                :components ((:file "shapes-tests")))))
+```
+
+- `(:module "src" :components (...))` loads files from the `src/` directory.
+- Order the components one of two ways:
+  - `:serial t` on the system or module: each file depends on all files
+    listed before it. Simple; use it for small projects.
+  - `:depends-on ("file" ...)` on each component: names the files in the same
+    module that must load first. The `package` file comes first in every
+    chain, and a file that uses a macro depends on the file defining it.
+- `:depends-on` on the system lists other systems and built-in modules:
+  `"other-system"`, `(:require "osi")`, `(:require "tester")`.
+- `lisp-check` finds `shapes.asd` from `src/` and `tests/` too: it looks in
+  the file's directory, then each parent, up to the directory holding `.git`.
+
+#### Loading a project by hand
+
+```lisp repl
+(require :asdf)
+(asdf:load-asd #p"/path/to/shapes/shapes.asd")   ; absolute path
+(asdf:load-system "shapes")
+(asdf:test-system "shapes")
+```
+
+- `load-asd` tells ASDF about the systems in that file. Do it once per `.asd`
+  before `load-system`.
+- `load-system` compiles each file whose source changed, then loads it.
+- `test-system` runs the system's `test-op`, which here loads
+  `"shapes/tests"`. Loading the tests file runs its top-level assertions.
+  Failures print `Test failed:` blocks; the counts are in
+  `util.test:*test-errors*` and `util.test:*test-successes*`.
+
+#### Where compiled files go
+
+ASDF writes fasls to `~/.cache/common-lisp/<implementation>/`, under the
+source file's absolute path, never next to the source. `lisp-check` sends
+them to `/tmp/lisp-check-asdf/` instead. Keep `*.fasl` in `.gitignore` anyway.
+
+#### Common mistakes
+
+- A file that is not in `:components` is never loaded. Add every new file.
+- The `package` file must load before any file that says `in-package`.
+- The main system has a different name than its `.asd` file. `lisp-check`
+  loads the system named like the file: `"shapes"` from `shapes.asd`.
+- `:depends-on` names a system that is not on the machine, for example a
+  Quicklisp library. Write the code in the project instead.
 
 ## lisp-verify
 
 Check loop for Common Lisp. Use after writing or editing any Lisp source or test file (.lisp, .cl) to run lisp-check, fix the first error, and repeat until OK.
 
-
 Every Lisp file you write must pass `lisp-check`. A file is done only when
 `lisp-check` prints `OK` for it.
 
-## The loop
+### The loop
 
 For each Lisp file you created or changed:
 
@@ -172,7 +251,7 @@ so they may disappear once it is fixed.
 Finish the loop before you report the work as done. When you report, say that
 `lisp-check` printed `OK` for each file.
 
-## When to use `--test`
+### When to use `--test`
 
 `--test` also loads the compiled file, which runs its top-level `tester`
 assertions (`(test ...)`, `(test-error ...)`).
@@ -184,7 +263,7 @@ assertions (`(test ...)`, `(test-error ...)`).
 - When you change code that a test file covers, run the loop on the test
   file with `--test` too.
 
-## Reading the output
+### Reading the output
 
 Each problem is one line:
 
@@ -200,7 +279,7 @@ After the problem lines comes exactly one summary line: `OK` or `FAIL`.
 The exit code is `0` for `OK`, `1` when the file has problems, and `2` when
 `lisp-check` itself could not run.
 
-### Stage `read`
+#### Stage `read`
 
 The file does not read as Lisp. Usually the parentheses or quotes do not
 balance.
@@ -230,13 +309,13 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
 
-### Stage `system`
+#### Stage `system`
 
 The file is in a project (a `.asd` in its directory or a parent), and
 `lisp-check` could not load that ASDF system. Run `lisp-check` on the project
 file the message names and fix it first, or fix the `.asd` (lisp-project skill).
 
-### Stage `compile`
+#### Stage `compile`
 
 The file reads, and `lisp-check` compiled it. Every compiler warning is a
 problem, including a style warning.
@@ -253,7 +332,7 @@ a `defun`. Search that whole form for the name in the message, and fix the
 cause in the code so the warning goes away. Fixes for common warnings:
 [references/compile-warnings.md](references/compile-warnings.md).
 
-### Stage `test` (only with `--test`)
+#### Stage `test` (only with `--test`)
 
 The file compiled, and loading it ran the assertions. `tester` prints a
 `Test failed:` block for each failed assertion, before the `test:` line:
@@ -271,7 +350,7 @@ returns the wanted value; change the assertion only when its wanted value is
 wrong. For other `test` messages, see
 [references/tester-tests.md](references/tester-tests.md).
 
-### Lines that start with `lisp-check:`
+#### Lines that start with `lisp-check:`
 
 ```
 lisp-check: Lisp binary 'alisp' not found. Install Allegro CL or set LISP_BIN to its path.
@@ -282,7 +361,7 @@ A line that starts with `lisp-check:` is about the check itself, not your
 file (exit code `2`). Leave the Lisp file as it is. Fix the command, or tell
 the user what the message says and stop.
 
-## Running lisp-check
+### Running lisp-check
 
 ```sh
 lisp-check path/to/file.lisp
@@ -297,7 +376,7 @@ lisp-check --test path/to/file-tests.lisp
   script from the lisp-skills plugin by its full path. In Claude Code that is
   `${CLAUDE_PLUGIN_ROOT}/bin/lisp-check`.
 
-# Fixing compile warnings
+### Fixing compile warnings
 
 Fix the first warning in the `lisp-check` output:
 
@@ -315,24 +394,30 @@ Fix the cause in the code so the warning goes away. The one declaration that
 counts as a fix is `(declare (ignore ...))` for an argument the function must
 accept but does not use.
 
-# Tests for `lisp-check --test`
+### Tests for `lisp-check --test`
 
 `lisp-check --test` loads the compiled file, and loading runs every top-level
-`tester` assertion in it. Write test files in this shape:
+`tester` assertion in it. Write test files in the shape of
+`examples/count-words-tests.lisp`, which passes `lisp-check --test`. It starts:
 
 ```lisp
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :tester))
 
-(defpackage :math-tests
+(defpackage :count-words-tests
   (:use :cl :util.test))
 
-(in-package :math-tests)
+(in-package :count-words-tests)
+```
 
-(test 2 (add1 1))
-(test "ab" (concatenate 'string "a" "b") :test #'string=)
-(test '(1 2) (list 1 2) :test #'equal)
-(test-error (parse-age "x"))
+then defines `count-words` and `first-word`, and ends with the assertions:
+
+```lisp
+(test 0 (count-words ""))
+(test 3 (count-words "  read  compile test "))
+(test '(0 1 2) (mapcar #'count-words '("" "lisp" "a b")) :test #'equal)
+(test "read" (first-word "  read compile") :test #'string=)
+(test-error (first-word "   "))
 ```
 
 - Name the file `NAME-tests.lisp`.
@@ -355,14 +440,14 @@ accept but does not use.
   code may skip type checks, so `(car 1)` can return garbage instead of
   signalling `type-error`.
 
-## Test output
+#### Test output
 
 ```
  * * * UNEXPECTED TEST FAILURE * * *
 Test failed: (ADD1 1)
   wanted: 5
      got: 2
-src/math-tests.lisp:?: test: 1 of 4 assertions failed
+src/math-tests.lisp:?: test: 1 of 2 assertions failed
 FAIL
 ```
 
@@ -381,11 +466,10 @@ Other `test` messages:
 
 Rules for writing Common Lisp for Allegro CL. Use when writing or editing Lisp code (.lisp, .cl), before running lisp-check.
 
-
 Write Common Lisp the way a Lisp developer would. Follow every rule below.
 Then check each file with `lisp-check` (the lisp-verify skill).
 
-## Portable ANSI first
+### Portable ANSI first
 
 - Write portable ANSI Common Lisp. Use only the `cl` package by default.
 - Use an Allegro extension (`excl:`, `excl.osi:`, `sys:`) only when ANSI
@@ -394,7 +478,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - Load Allegro modules with `require`, for example `(require :osi)`.
   Assume no Quicklisp and no network.
 
-## Common Lisp, not Scheme or Clojure
+### Common Lisp, not Scheme or Clojure
 
 | Instead of             | Write                                        |
 |------------------------|----------------------------------------------|
@@ -418,7 +502,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - A function and a variable can have the same name. Pass a function with
   `#'name`, call a function held in a variable with `funcall` or `apply`.
 
-## Variables
+### Variables
 
 - Global variables have earmuffs: `*name*`. Constants: `+name+` with `defconstant`.
 - `defparameter` sets the value every time the file loads. Use it for
@@ -431,7 +515,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
   binding can use an earlier one.
 - Change a place with `setf`, `incf`, `decf`, `push`, `pop`.
 
-## Equality
+### Equality
 
 | Compare                         | Use                           |
 |---------------------------------|-------------------------------|
@@ -449,7 +533,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - A hash table with string keys needs `(make-hash-table :test #'equal)`.
 - `gethash` returns two values: the value and whether the key was found.
 
-## Case mode: alisp and mlisp
+### Case mode: alisp and mlisp
 
 - `alisp` is ANSI mode, the default here. The reader turns symbol names to
   upper case: `foo`, `Foo` and `FOO` are the same symbol, named `"FOO"`.
@@ -463,7 +547,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - `(intern "foo")` and `(find-symbol "foo")` find a different symbol than
   `'foo` in `alisp`.
 
-## More traps
+### More traps
 
 - `sort` and `nreverse` destroy their argument. Sort a copy:
   `(sort (copy-list items) #'<)`. Never change a quoted literal like `'(3 1 2)`.
@@ -476,7 +560,7 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - Keep a function short and give it a docstring.
 - Unused argument: `(declare (ignore x))` as the first form of the body.
 
-## Packages
+### Packages
 
 Start each file with its package (from `examples/greeting.lisp`):
 
@@ -497,7 +581,7 @@ Start each file with its package (from `examples/greeting.lisp`):
 
 For systems, ASDF and tests, use the lisp-project skill.
 
-## References
+### References
 
 Open a reference when you write that kind of code:
 
