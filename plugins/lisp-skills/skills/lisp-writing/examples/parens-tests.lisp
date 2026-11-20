@@ -31,12 +31,18 @@
 (test 1 (count-long (list "a" "bb" "cccc")))
 
 ;;; 2. The else-branch is nested inside the then-branch.
-;;;    The IF has no else-branch, so it returns NIL.
+;;;    The IF has no else-branch, so it returns NIL. The wrong version is
+;;;    kept in a string because lisp-check reports its indentation as a
+;;;    structure problem.
+
+(defparameter *classify-wrong*
+  "(lambda (n)
+     (if (minusp n)
+         (list :negative n
+         (list :positive n))))")
 
 (defun classify-wrong (n)
-  (if (minusp n)
-      (list :negative n
-      (list :positive n))))
+  (funcall (compile nil (read-from-string *classify-wrong*)) n))
 
 (defun classify (n)
   (if (minusp n)
