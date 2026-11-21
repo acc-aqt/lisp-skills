@@ -127,14 +127,63 @@ with ) and so only closes forms."
                      (char= (char text (1+ end)) #\|)))
       (values (- end start) (find #\Tab text :start start :end end)))))
 
+(defstruct lexer
+  "Where a scan of Lisp text stands: inside a string, |symbol|, ; comment or
+#| |# block comment (nested BLOCK-DEPTH deep), or right after an escape."
+  escaped in-string in-bars in-comment (block-depth 0))
+
+(defun next-char-is (text i char)
+  (and (< (1+ i) (length text)) (char= (char text (1+ i)) char)))
+
+(defun lex-char (lexer text i)
+  "Advance LEXER past the character at I in TEXT. Return true if that character
+is code: outside strings, |symbols|, comments and escapes. A newline that ends
+a ; comment counts as code."
+  (let ((char (char text i))
+        (escaped (lexer-escaped lexer)))
+    (setf (lexer-escaped lexer) nil)
+    (cond (escaped nil)
+          ((lexer-in-comment lexer)
+           (when (char= char #\Newline)
+             (setf (lexer-in-comment lexer) nil)
+             t))
+          ((lexer-in-string lexer)
+           (case char
+             (#\\ (setf (lexer-escaped lexer) t))
+             (#\" (setf (lexer-in-string lexer) nil)))
+           nil)
+          ((lexer-in-bars lexer)
+           (case char
+             (#\\ (setf (lexer-escaped lexer) t))
+             (#\| (setf (lexer-in-bars lexer) nil)))
+           nil)
+          ((plusp (lexer-block-depth lexer))
+           (cond ((and (char= char #\|) (next-char-is text i #\#))
+                  (decf (lexer-block-depth lexer))
+                  (setf (lexer-escaped lexer) t))
+                 ((and (char= char #\#) (next-char-is text i #\|))
+                  (incf (lexer-block-depth lexer))
+                  (setf (lexer-escaped lexer) t)))
+           nil)
+          (t (case char
+               (#\" (setf (lexer-in-string lexer) t) nil)
+               (#\| (setf (lexer-in-bars lexer) t) nil)
+               (#\\ (setf (lexer-escaped lexer) t) nil)
+               (#\; (setf (lexer-in-comment lexer) t) nil)
+               (#\# (cond ((next-char-is text i #\|)
+                           (incf (lexer-block-depth lexer))
+                           (setf (lexer-escaped lexer) t)
+                           nil)
+                          (t t)))
+               (t t))))))
+
 (defun structure-stage (file text)
   "Compare the indentation of each code line in TEXT, the contents of FILE,
 with the paren nesting at its start. Strings, comments, |symbols| and escaped
 characters such as #\\( are skipped, and lines starting inside a string or
 block comment are not checked. Indentation must be spaces: the first tab found
 in indentation is reported and ends the stage."
-  (let ((ok t) (open '()) (closed '()) (line 1) (column 0) (escaped nil)
-        (in-string nil) (in-bars nil) (in-comment nil) (block-depth 0))
+  (let ((ok t) (open '()) (closed '()) (line 1) (column 0) (lexer (make-lexer)))
     (labels ((problem (message)
                (setf ok nil)
                (report file line "structure" message))
@@ -147,48 +196,24 @@ in indentation is reported and ends the stage."
                        (t (let ((message (indentation-problem open closed indent)))
                             (setf closed '())
                             (when message (problem message)))))))
-             (next-is (i char)
-               (and (< (1+ i) (length text)) (char= (char text (1+ i)) char))))
+             (close-paren ()
+               (let ((depth (length open))
+                     (paren (pop open)))
+                 (when paren
+                   (push (make-closed-paren paren depth line) closed)))))
       (check-line 0)
       (loop for i from 0 below (length text)
             for char = (char text i)
-            for skip = escaped
-            do (setf escaped nil)
-               (cond (skip)
-                     (in-comment (when (char= char #\Newline) (setf in-comment nil)))
-                     (in-string (case char
-                                  (#\\ (setf escaped t))
-                                  (#\" (setf in-string nil))))
-                     (in-bars (case char
-                                (#\\ (setf escaped t))
-                                (#\| (setf in-bars nil))))
-                     ((plusp block-depth)
-                      (cond ((and (char= char #\|) (next-is i #\#))
-                             (decf block-depth)
-                             (setf escaped t))
-                            ((and (char= char #\#) (next-is i #\|))
-                             (incf block-depth)
-                             (setf escaped t))))
-                     (t (case char
-                          (#\" (setf in-string t))
-                          (#\| (setf in-bars t))
-                          (#\\ (setf escaped t))
-                          (#\; (setf in-comment t))
-                          (#\# (when (next-is i #\|)
-                                 (incf block-depth)
-                                 (setf escaped t)))
-                          (#\( (push (make-open-paren line column (form-head text (1+ i)))
-                                     open))
-                          (#\) (let ((depth (length open))
-                                      (paren (pop open)))
-                                  (when paren
-                                    (push (make-closed-paren paren depth line)
-                                          closed)))))))
+            for code = (lex-char lexer text i)
+            do (when code
+                 (case char
+                   (#\( (push (make-open-paren line column (form-head text (1+ i)))
+                              open))
+                   (#\) (close-paren))))
                (cond ((char/= char #\Newline) (incf column))
                      (t (incf line)
                         (setf column 0)
-                        (unless (or skip in-string in-bars (plusp block-depth))
-                          (check-line (1+ i)))))))
+                        (when code (check-line (1+ i)))))))
     ok))
 
 (defun warning-line (text condition)
