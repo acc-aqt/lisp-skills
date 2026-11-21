@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""Generates misplaced-paren mutants of the skill examples that have tests.
+
+Usage: scripts/generate-mutants [--per-file N] [--seed S] OUTDIR [EXAMPLE...]
+
+A one-off maintainer tool for tests/mutants/; make check does not run it.
+EXAMPLE defaults to every single-file *-tests.lisp example (one that defines
+its functions and tests them in the same file). For each example it moves one
+`)` of a definition to another position in the same top-level form: the end of
+a line, the end of a run of `)`, or the end of a token. It tries up to N such
+moves per example (default 40, chosen at random with seed S, default 1) and
+keeps a mutant that
+
+  1. reads,
+  2. passes lisp-check without --test apart from structure problems, and
+  3. fails lisp-check --test with a test-stage problem.
+
+Each kept mutant is written to OUTDIR as STEM-NN.lisp, plus STEM-NN-reindented.lisp
+when the mutant can be re-indented to match its wrong nesting and still meets
+the three conditions. Each file starts with the tests/mutants/ header, which
+records what the structure stage actually reported.
+
+LISP_CHECK is the lisp-check command (default plugins/lisp-skills/bin/lisp-check).
+It runs from the repository root with a 60-second limit (a moved paren can make
+a loop endless), so OUTDIR must be inside the repository when lisp-check runs
+in Docker. Without a local Allegro, start a container once and point LISP_CHECK
+at it, with timeout so endless runs also stop inside the container:
+
+  docker run -d --name mutants --platform linux/amd64 -v "$PWD":/work lisp-skills-allegro sleep infinity
+  LISP_CHECK="docker exec mutants timeout 50 plugins/lisp-skills/bin/lisp-check" scripts/generate-mutants mutants-out
+  docker rm -f mutants
+"""
+
+import argparse
+import glob
+import os
+import random
+import shlex
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKIPPED_FORMS = ("(test ", "(test-error ", "(defpackage ", "(eval-when ", "(in-package ")
+HEADER_LINES = 6
+
+
+def scan(text):
+    """Return (opens, closes, code_ends, line_states) for TEXT.
+
+    opens and closes list the positions of code parens (outside strings,
+    comments and character literals). code_ends lists, per line, the position
+    after its last code character. line_states[i] is True when line i starts
+    inside a string or block comment."""
+    opens, closes = [], []
+    code_ends = []
+    line_states = [False]
+    state = "code"
+    block_depth = 0
+    last_code = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "\n":
+            code_ends.append(last_code)
+            line_states.append(state != "code")
+            last_code = i + 1
+            if state == "comment":
+                state = "code"
+            i += 1
+            continue
+        if state == "string":
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                state = "code"
+                last_code = i + 1
+        elif state == "block":
+            if text.startswith("|#", i):
+                block_depth -= 1
+                i += 1
+                if block_depth == 0:
+                    state = "code"
+            elif text.startswith("#|", i):
+                block_depth += 1
+                i += 1
+        elif state == "code":
+            if c == ";":
+                state = "comment"
+            elif c == '"':
+                state = "string"
+            elif text.startswith("#|", i):
+                state = "block"
+                block_depth = 1
+                i += 1
+            elif text.startswith("#\\", i):
+                i += 2
+                last_code = i + 1
+            else:
+                if c == "(":
+                    opens.append(i)
+                elif c == ")":
+                    closes.append(i)
+                if not c.isspace():
+                    last_code = i + 1
+        i += 1
+    code_ends.append(last_code)
+    return opens, closes, code_ends, line_states
+
+
+def top_level_forms(text, opens, closes):
+    """Return (start, end) for each top-level form, end after its last )."""
+    events = sorted([(p, 1) for p in opens] + [(p, -1) for p in closes])
+    forms, depth, start = [], 0, None
+    for position, step in events:
+        if depth == 0 and step == 1:
+            start = position
+        depth += step
+        if depth == 0 and start is not None:
+            forms.append((start, position + 1))
+            start = None
+    return forms
+
+
+def line_of(text, position):
+    return text.count("\n", 0, position) + 1
+
+
+def targets(text, start, end, code_ends):
+    """Positions in the form where a moved ) could land."""
+    found = set()
+    for i in range(start + 1, end):
+        before, here = text[i - 1], text[i]
+        if before == ")" and here != ")":
+            found.add(i)
+        elif not before.isspace() and before not in "()" and (here.isspace() or here == ")"):
+            found.add(i)
+    found.update(e for e in code_ends if start < e < end)
+    return found
+
+
+def candidate_moves(text):
+    """Every (source, target) move of one ) inside a definition."""
+    opens, closes, code_ends, _ = scan(text)
+    moves = []
+    for start, end in top_level_forms(text, opens, closes):
+        if text.startswith(SKIPPED_FORMS, start):
+            continue
+        spots = targets(text, start, end, code_ends)
+        for source in (c for c in closes if start < c < end - 1):
+            for target in spots:
+                if target not in (source, source + 1):
+                    moves.append((source, target))
+    return moves
+
+
+def apply_move(text, source, target):
+    removed = text[:source] + text[source + 1:]
+    if target > source:
+        target -= 1
+    return removed[:target] + ")" + removed[target:]
+
+
+def describe_move(text, source, target, offset):
+    def where(position):
+        line = line_of(text, position)
+        column = position - (text.rfind("\n", 0, position) + 1)
+        return f"line {line + offset}, column {column}"
+    return f"moved the ) at {where(source)} to {where(target)} (lines of this file)"
+
+
+def reindent(text):
+    """Re-indent TEXT so each line's indentation matches its actual nesting.
+
+    A line keeps its offset from its innermost open paren. If that breaks the
+    structure invariant, it goes 2 (or 1) columns right of that paren.
+    Returns None if no such indentation exists."""
+    opens, closes, _, line_states = scan(text)
+    lines = text.split("\n")
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line) + 1)
+    events = [[] for _ in lines]
+    open_set = set(opens)
+    for position in sorted(opens + closes):
+        number = line_of(text, position) - 1
+        events[number].append((position - starts[number], position in open_set))
+    out = []
+    stack = []
+    closed_since = []
+    for number, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        if line_states[number] or stripped == "" or stripped.startswith(";"):
+            new_line, shift = line, 0
+        else:
+            old = len(line) - len(stripped)
+            parent = stack[-1] if stack else None
+            column = old + (parent[1] if parent else 0)
+            if parent and not fits(column, parent, closed_since, len(stack)):
+                for step in (2, 1):
+                    column = parent[0] + step
+                    if fits(column, parent, closed_since, len(stack)):
+                        break
+                else:
+                    return None
+            new_line, shift = " " * column + stripped, column - old
+            closed_since = []
+        out.append(new_line)
+        for paren_column, is_open in events[number]:
+            if is_open:
+                stack.append((paren_column + shift, shift))
+            elif stack:
+                closed_since.append((stack.pop(), len(stack) + 1))
+    return "\n".join(out)
+
+
+def fits(column, parent, closed_since, depth):
+    if column <= parent[0]:
+        return False
+    return all(not (paren_depth > depth and paren[0] < column)
+               for paren, paren_depth in closed_since)
+
+
+def lisp_check(path, test=False):
+    command = shlex.split(os.environ.get("LISP_CHECK", "plugins/lisp-skills/bin/lisp-check"))
+    relative = os.path.relpath(path, ROOT)
+    args = command + (["--test"] if test else []) + [relative]
+    try:
+        result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True,
+                                stdin=subprocess.DEVNULL, timeout=60)
+    except subprocess.TimeoutExpired:
+        return f"{relative}:?: timeout: lisp-check ran for over 60 seconds\nFAIL\n"
+    return result.stdout + result.stderr
+
+
+def problems(output, stage):
+    return [line for line in output.splitlines() if f": {stage}: " in line]
+
+
+def problem_lines(output):
+    return [line for line in output.splitlines()
+            if line.count(": ") >= 2 and line.split(": ")[1].strip()
+            in ("read", "structure", "system", "compile", "test", "timeout")]
+
+
+def header(name, kind, verdict, structure_line, description):
+    if verdict == "caught":
+        output_line = f";;; expect-output: {structure_line}"
+    else:
+        output_line = ";;; expect-no-output: structure:"
+    lines = [";;; expect: FAIL",
+             ";;; flags: --test",
+             f";;; mutant-kind: {kind}",
+             f";;; expect-structure: {verdict}",
+             output_line,
+             f";;; Mutant of {name}: {description}."]
+    assert len(lines) == HEADER_LINES
+    return "\n".join(lines) + "\n"
+
+
+def try_mutant(path, body, kind, source_name, description):
+    """Write BODY with a header to PATH and keep it if it meets the conditions.
+    Returns the verdict (caught or missed) or None."""
+    with open(path, "w") as out:
+        out.write(header(source_name, kind, "missed", "", description) + body)
+    plain = lisp_check(path)
+    if any(": structure: " not in line for line in problem_lines(plain)):
+        return None
+    if problems(plain, "read"):
+        return None
+    tested = lisp_check(path, test=True)
+    if not problems(tested, "test") or problems(tested, "timeout"):
+        return None
+    found = problems(plain, "structure")
+    verdict = "caught" if found else "missed"
+    structure_line = ":".join(found[0].split(":")[:3]) + ":" if found else ""
+    structure_line = structure_line.replace(os.path.relpath(os.path.dirname(path), ROOT) + "/", "")
+    with open(path, "w") as out:
+        out.write(header(source_name, kind, verdict, structure_line, description) + body)
+    return verdict
+
+
+def default_examples():
+    pattern = os.path.join(ROOT, "plugins/lisp-skills/skills/*/examples/*-tests.lisp")
+    return sorted(p for p in glob.glob(pattern) if not glob.glob(os.path.join(os.path.dirname(p), "*.asd")))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate misplaced-paren mutants.")
+    parser.add_argument("--per-file", type=int, default=40)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("outdir")
+    parser.add_argument("examples", nargs="*")
+    args = parser.parse_args()
+    os.makedirs(args.outdir, exist_ok=True)
+    rng = random.Random(args.seed)
+    for example in args.examples or default_examples():
+        with open(example) as source:
+            text = source.read()
+        name = os.path.relpath(os.path.abspath(example), ROOT)
+        stem = os.path.basename(example).removesuffix("-tests.lisp")
+        seen = {text}
+        moves = []
+        for source_pos, target in candidate_moves(text):
+            mutant = apply_move(text, source_pos, target)
+            if mutant not in seen:
+                seen.add(mutant)
+                moves.append((source_pos, target, mutant))
+        rng.shuffle(moves)
+        kept = 0
+        for source_pos, target, mutant in moves[:args.per_file]:
+            number = f"{kept + 1:02d}"
+            path = os.path.join(args.outdir, f"{stem}-{number}.lisp")
+            description = describe_move(text, source_pos, target, HEADER_LINES)
+            verdict = try_mutant(path, mutant, "original-indentation", name, description)
+            if verdict is None:
+                os.remove(path)
+                continue
+            kept += 1
+            print(f"{path}: original-indentation {verdict}")
+            reindented = reindent(mutant)
+            if reindented is None or reindented == mutant:
+                continue
+            path = os.path.join(args.outdir, f"{stem}-{number}-reindented.lisp")
+            verdict = try_mutant(path, reindented, "re-indented", name,
+                                 description + ", then re-indented to match")
+            if verdict is None:
+                os.remove(path)
+            else:
+                print(f"{path}: re-indented {verdict}")
+        print(f"{name}: kept {kept} of {min(len(moves), args.per_file)} tried ({len(moves)} possible)",
+              file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
