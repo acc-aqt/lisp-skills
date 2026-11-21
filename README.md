@@ -65,7 +65,7 @@ The stage only sees a misplaced `)` that leaves some line indented for the other
 - some `)` moved across lines, when the next line still sits to the right of an open paren and the closed form is at the same depth;
 - two `cond` clauses merged with the swallowed test indented inside the first clause, as in the example in `lisp-writing`'s `references/parens.md`; a swallowed clause still indented as a sibling clause is caught.
 
-The mutant test that `make check` runs measures this on skill examples with one `)` moved: the stage currently catches 8 of 12 mutants that keep their original indentation and 0 of 6 re-indented ones.
+The mutant test that `make check` runs measures this on skill examples with one `)` moved: the stage currently catches 8 of 12 mutants that keep their original indentation and 0 of 6 re-indented ones. Three of the four original-indentation misses move a `)` within one line, which no indentation check can see; the fourth moves one across lines into a form at the same depth.
 
 ### Where Allegro runs
 
