@@ -182,7 +182,8 @@ a ; comment counts as code."
 with the paren nesting at its start. Strings, comments, |symbols| and escaped
 characters such as #\\( are skipped, and lines starting inside a string or
 block comment are not checked. Indentation must be spaces: the first tab found
-in indentation is reported and ends the stage."
+in indentation is reported and ends the stage. A tab after the indentation
+advances the column to the next multiple of 8."
   (let ((ok t) (open '()) (closed '()) (line 1) (column 0) (lexer (make-lexer)))
     (labels ((problem (message)
                (setf ok nil)
@@ -210,10 +211,12 @@ in indentation is reported and ends the stage."
                    (#\( (push (make-open-paren line column (form-head text (1+ i)))
                               open))
                    (#\) (close-paren))))
-               (cond ((char/= char #\Newline) (incf column))
-                     (t (incf line)
-                        (setf column 0)
-                        (when code (check-line (1+ i)))))))
+               (case char
+                 (#\Tab (setf column (* 8 (1+ (floor column 8)))))
+                 (#\Newline (incf line)
+                  (setf column 0)
+                  (when code (check-line (1+ i))))
+                 (t (incf column)))))
     ok))
 
 (defun warning-line (text condition)
