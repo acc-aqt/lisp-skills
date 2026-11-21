@@ -51,6 +51,174 @@ syntax is checked."
               (report file (line-at text (1- (file-position in))) "read" condition)
               (return nil))))))))
 
+(defstruct (open-paren (:constructor make-open-paren (line column head)))
+  line column head)
+
+(defun form-head (text position)
+  "Return the token starting at POSITION in TEXT, right after a (, such as
+\"let\". It is empty when the ( is followed by another ( or a space."
+  (let ((end (or (position-if (lambda (char)
+                                (member char '(#\Space #\Tab #\Newline #\Return
+                                               #\( #\) #\" #\;)))
+                              text :start position)
+                 (length text))))
+    (subseq text position end)))
+
+(defun describe-form (paren)
+  (cond ((null paren) "top level")
+        ((string= (open-paren-head paren) "")
+         (format nil "the form starting at line ~d" (open-paren-line paren)))
+        (t (format nil "the (~a form starting at line ~d"
+                   (open-paren-head paren) (open-paren-line paren)))))
+
+(defstruct (closed-paren (:constructor make-closed-paren (paren depth line)))
+  paren depth line)
+
+(defun outside-problem (open column)
+  "Return a message if a line indented to COLUMN sits at or left of a paren in
+OPEN, the parens still open at its start, innermost first; else NIL. The line
+looks like it comes after that form, but the parens keep it inside."
+  (let ((outside (find-if (lambda (paren) (>= (open-paren-column paren) column))
+                          open :from-end t)))
+    (when outside
+      (format nil "line is indented as if it came after ~a, but the parens keep it inside that form; by its indentation it belongs in ~a"
+              (describe-form outside)
+              (describe-form (find-if (lambda (paren) (< (open-paren-column paren) column))
+                                      open))))))
+
+(defun inside-closed-problem (open closed column)
+  "Return a message if a line indented to COLUMN sits right of a paren in
+CLOSED that was nested deeper than the innermost paren in OPEN; else NIL.
+The line looks like it is inside that form, but the form is already closed.
+Of several such parens, the deepest is named."
+  (let ((inside nil))
+    (dolist (entry closed)
+      (when (and (< (open-paren-column (closed-paren-paren entry)) column)
+                 (> (closed-paren-depth entry) (length open))
+                 (or (null inside)
+                     (> (closed-paren-depth entry) (closed-paren-depth inside))))
+        (setf inside entry)))
+    (when inside
+      (format nil "line is indented as if it were inside ~a, but that form was closed on line ~d; by the parens it is ~:[in ~a~;at top level~]"
+              (describe-form (closed-paren-paren inside))
+              (closed-paren-line inside)
+              (null open)
+              (describe-form (first open))))))
+
+(defun indentation-problem (open closed column)
+  "Return a message if a line indented to COLUMN contradicts the paren nesting
+at its start, else NIL. OPEN holds the parens still open, innermost first;
+CLOSED the parens closed since the previous code line, latest first."
+  (or (outside-problem open column)
+      (inside-closed-problem open closed column)))
+
+(defun line-indentation (text start)
+  "Return the indentation of the line starting at START in TEXT as
+(values COLUMN TABP), or NIL when the line is blank, a comment, or starts
+with ) and so only closes forms."
+  (let* ((end (or (position-if-not (lambda (char) (member char '(#\Space #\Tab)))
+                                   text :start start)
+                  (length text)))
+         (first (and (< end (length text)) (char text end))))
+    (unless (or (null first)
+                (member first '(#\Newline #\Return #\; #\)))
+                (and (char= first #\#)
+                     (< (1+ end) (length text))
+                     (char= (char text (1+ end)) #\|)))
+      (values (- end start) (find #\Tab text :start start :end end)))))
+
+(defstruct lexer
+  "Where a scan of Lisp text stands: inside a string, |symbol|, ; comment or
+#| |# block comment (nested BLOCK-DEPTH deep), or right after an escape."
+  escaped in-string in-bars in-comment (block-depth 0))
+
+(defun next-char-is (text i char)
+  (and (< (1+ i) (length text)) (char= (char text (1+ i)) char)))
+
+(defun lex-char (lexer text i)
+  "Advance LEXER past the character at I in TEXT. Return true if that character
+is code: outside strings, |symbols|, comments and escapes. A newline that ends
+a ; comment counts as code."
+  (let ((char (char text i))
+        (escaped (lexer-escaped lexer)))
+    (setf (lexer-escaped lexer) nil)
+    (cond (escaped nil)
+          ((lexer-in-comment lexer)
+           (when (char= char #\Newline)
+             (setf (lexer-in-comment lexer) nil)
+             t))
+          ((lexer-in-string lexer)
+           (case char
+             (#\\ (setf (lexer-escaped lexer) t))
+             (#\" (setf (lexer-in-string lexer) nil)))
+           nil)
+          ((lexer-in-bars lexer)
+           (case char
+             (#\\ (setf (lexer-escaped lexer) t))
+             (#\| (setf (lexer-in-bars lexer) nil)))
+           nil)
+          ((plusp (lexer-block-depth lexer))
+           (cond ((and (char= char #\|) (next-char-is text i #\#))
+                  (decf (lexer-block-depth lexer))
+                  (setf (lexer-escaped lexer) t))
+                 ((and (char= char #\#) (next-char-is text i #\|))
+                  (incf (lexer-block-depth lexer))
+                  (setf (lexer-escaped lexer) t)))
+           nil)
+          (t (case char
+               (#\" (setf (lexer-in-string lexer) t) nil)
+               (#\| (setf (lexer-in-bars lexer) t) nil)
+               (#\\ (setf (lexer-escaped lexer) t) nil)
+               (#\; (setf (lexer-in-comment lexer) t) nil)
+               (#\# (cond ((next-char-is text i #\|)
+                           (incf (lexer-block-depth lexer))
+                           (setf (lexer-escaped lexer) t)
+                           nil)
+                          (t t)))
+               (t t))))))
+
+(defun structure-stage (file text)
+  "Compare the indentation of each code line in TEXT, the contents of FILE,
+with the paren nesting at its start. Strings, comments, |symbols| and escaped
+characters such as #\\( are skipped, and lines starting inside a string or
+block comment are not checked. Indentation must be spaces: the first tab found
+in indentation is reported and ends the stage. A tab after the indentation
+advances the column to the next multiple of 8."
+  (let ((ok t) (open '()) (closed '()) (line 1) (column 0) (lexer (make-lexer)))
+    (labels ((problem (message)
+               (setf ok nil)
+               (report file line "structure" message))
+             (check-line (start)
+               (multiple-value-bind (indent tabp) (line-indentation text start)
+                 (cond ((null indent))
+                       (tabp
+                        (problem "indentation contains a tab; indent with spaces only")
+                        (return-from structure-stage nil))
+                       (t (let ((message (indentation-problem open closed indent)))
+                            (setf closed '())
+                            (when message (problem message)))))))
+             (close-paren ()
+               (let ((depth (length open))
+                     (paren (pop open)))
+                 (when paren
+                   (push (make-closed-paren paren depth line) closed)))))
+      (check-line 0)
+      (loop for i from 0 below (length text)
+            for char = (char text i)
+            for code = (lex-char lexer text i)
+            do (when code
+                 (case char
+                   (#\( (push (make-open-paren line column (form-head text (1+ i)))
+                              open))
+                   (#\) (close-paren))))
+               (case char
+                 (#\Tab (setf column (* 8 (1+ (floor column 8)))))
+                 (#\Newline (incf line)
+                  (setf column 0)
+                  (when code (check-line (1+ i))))
+                 (t (incf column)))))
+    ok))
+
 (defun warning-line (text condition)
   "Return the line in TEXT of the top-level form CONDITION was signalled for,
 or NIL. Uses Allegro internals, so any surprise yields NIL."
@@ -190,10 +358,12 @@ Tester prints each failing assertion itself; this adds one summary line."
          (fasl (fasl-path))
          (ok (unwind-protect
                   (and (read-stage file text)
-                       (system-stage file)
-                       (compile-stage file text fasl)
-                       (or (not (member "--test" arguments :test #'string=))
-                           (test-stage file fasl)))
+                       (let ((structure-ok (structure-stage file text)))
+                         (and (system-stage file)
+                              (compile-stage file text fasl)
+                              (or (not (member "--test" arguments :test #'string=))
+                                  (test-stage file fasl))
+                              structure-ok)))
                (ignore-errors (delete-file fasl)))))
     (format t "~:[FAIL~;OK~]~%" ok)
     (finish-output)

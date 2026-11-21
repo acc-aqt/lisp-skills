@@ -251,6 +251,13 @@ so they may disappear once it is fixed.
 Finish the loop before you report the work as done. When you report, say that
 `lisp-check` printed `OK` for each file.
 
+### Editing an existing file
+
+Replace a complete top-level form: from the `(` of its `defun` (or other
+top-level form) to its last `)`. Write the new form in full, with all its
+closing parens. Never replace only part of a form; the closing `)))` of the
+changed function must stay intact.
+
 ### When to use `--test`
 
 `--test` also loads the compiled file, which runs its top-level `tester`
@@ -308,6 +315,40 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
+
+#### Stage `structure`
+
+The file reads, but a line's indentation does not match where the parens put
+it. Usually a `)` is in the wrong place: a form ended up inside a `let`,
+`when` or `if` branch that should have closed before it, or a form escaped
+one because its `)` came too early.
+
+```
+src/math.lisp:11: structure: line is indented as if it came after the (let form starting at line 9, but the parens keep it inside that form; by its indentation it belongs in the (defun form starting at line 8
+src/math.lisp:20: structure: line is indented as if it were inside the (when form starting at line 19, but that form was closed on line 19; by the parens it is in the (dolist form starting at line 18
+FAIL
+```
+
+Line 11 is indented like the next form after the `let` on line 9, but the
+`let`'s closing `)` comes later, so line 11 is inside the `let`. Line 20 is
+indented like the body of the `when` on line 19, but the `when` already
+closed on line 19, so line 20 is outside it. To fix a `structure` problem:
+
+1. Work out what the code should do: should the line be inside the form the
+   message names, or outside it?
+2. Move the `)` that closes that form so the nesting matches. If the form
+   closes too late (line 11), move its `)` to before the line. If it closed
+   too early (line 20), move its `)` from the line it closed on to the end of
+   the last form that belongs inside it. The parens must still balance.
+3. Never re-indent the code only to make this check pass. That hides the
+   misplaced `)` and leaves the program wrong.
+4. If the parens are right and only the indentation is wrong, re-indent that
+   one form so each line sits to the right of the `(` of the form it is in,
+   and not to the right of a form that closed before it.
+
+Indent with spaces. A tab in a line's indentation is reported as
+`indentation contains a tab; indent with spaces only`, and the rest of the
+file is not checked for structure until the tabs are replaced with spaces.
 
 #### Stage `system`
 
@@ -560,6 +601,29 @@ Then check each file with `lisp-check` (the lisp-verify skill).
 - Keep a function short and give it a docstring.
 - Unused argument: `(declare (ignore x))` as the first form of the body.
 
+### Bracket structure
+
+- Put a form's closing parens at the end of its last line, all together:
+  `(incf count)))`. Never put `)` on a line of its own.
+- Start each sub-form on its own line, indented under its parent. The
+  indentation then shows which form each line belongs to.
+
+From `examples/parens-tests.lisp`:
+
+```lisp
+(defun count-long (words)
+  (let ((count 0))
+    (dolist (word words)
+      (when (> (length word) 3)
+        (incf count)))
+    count))
+```
+
+After writing a form, check that its parens match its indentation. A `)` in
+the wrong place often still compiles, but the code does something else.
+Common misplacements, each with a wrong and a right version:
+`references/parens.md`.
+
 ### Packages
 
 Start each file with its package (from `examples/greeting.lisp`):
@@ -590,6 +654,7 @@ Open a reference when you write that kind of code:
 - `references/clos.md`: `defclass`, `defgeneric`, `defmethod`, `print-object`.
 - `references/conditions.md`: `handler-case`, `define-condition`, restarts,
   `unwind-protect`.
+- `references/parens.md`: misplaced parens in `when`, `if`, `cond` and `defun`.
 - `references/allegro.md`: shell commands, `excl:` string and regexp utilities,
   environment variables, case mode.
 
@@ -652,3 +717,70 @@ Each pattern is from `examples/loop-tests.lisp`, which passes `lisp-check --test
 - Accumulate with `collect`, `append`, `sum`, `count`, `maximize`, `minimize`.
 - Side effects go after `do`. `do` takes one or more forms.
 - For a plain walk with side effects, `dolist` and `dotimes` are fine too.
+
+### Misplaced parens
+
+From `examples/parens-tests.lisp`, which passes `lisp-check --test`. Each
+wrong version compiles without a warning but does something else. Its
+indentation shows what was meant; the parens decide what runs.
+
+**A form escapes `when`, `let` or `dolist`.** The `when` closes before its
+body, so `(incf count)` runs for every word:
+
+```lisp
+;; Wrong: (count-long-wrong (list "a" "bb" "cccc")) => 3
+(dolist (word words)
+  (when (> (length word) 3))
+    (incf count))
+
+;; Right: (count-long (list "a" "bb" "cccc")) => 1
+(dolist (word words)
+  (when (> (length word) 3)
+    (incf count)))
+```
+
+**The else-branch of `if` is nested in the then-branch.** The `if` then has
+no else-branch and returns `nil`:
+
+```lisp
+;; Wrong: (classify-wrong 5) => NIL
+(if (minusp n)
+    (list :negative n
+    (list :positive n)))
+
+;; Right: (classify 5) => (:POSITIVE 5)
+(if (minusp n)
+    (list :negative n)
+    (list :positive n))
+```
+
+**Two `cond` clauses merge.** The second test becomes a body form of the
+first clause, and the clause returns its last form:
+
+```lisp
+;; Wrong: (parity-wrong 0) => :EVEN, (parity-wrong 2) => :ODD
+(cond ((zerop n) :zero
+       (evenp n) :even)
+      (t :odd))
+
+;; Right: (parity 0) => :ZERO, (parity 2) => :EVEN
+(cond ((zerop n) :zero)
+      ((evenp n) :even)
+      (t :odd))
+```
+
+**The `defun` body ends early.** The `)` after `(incf n)` closes the
+`defun`. The `format` form is then outside the function, and the last `)`
+is one too many:
+
+```lisp
+;; Wrong: the defun is (defun next-label (n) (incf n))
+(defun next-label (n)
+  (incf n))
+  (format nil "item-~d" n))
+
+;; Right
+(defun next-label (n)
+  (incf n)
+  (format nil "item-~d" n))
+```

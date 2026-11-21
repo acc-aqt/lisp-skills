@@ -24,6 +24,13 @@ so they may disappear once it is fixed.
 Finish the loop before you report the work as done. When you report, say that
 `lisp-check` printed `OK` for each file.
 
+## Editing an existing file
+
+Replace a complete top-level form: from the `(` of its `defun` (or other
+top-level form) to its last `)`. Write the new form in full, with all its
+closing parens. Never replace only part of a form; the closing `)))` of the
+changed function must stay intact.
+
 ## When to use `--test`
 
 `--test` also loads the compiled file, which runs its top-level `tester`
@@ -81,6 +88,40 @@ Line 7 has one `)` too many. Remove the extra `)` on that line, or add the
 
 Other `read` messages name the bad syntax, for example
 `Comma not inside a backquote.` Fix the syntax on that line.
+
+### Stage `structure`
+
+The file reads, but a line's indentation does not match where the parens put
+it. Usually a `)` is in the wrong place: a form ended up inside a `let`,
+`when` or `if` branch that should have closed before it, or a form escaped
+one because its `)` came too early.
+
+```
+src/math.lisp:11: structure: line is indented as if it came after the (let form starting at line 9, but the parens keep it inside that form; by its indentation it belongs in the (defun form starting at line 8
+src/math.lisp:20: structure: line is indented as if it were inside the (when form starting at line 19, but that form was closed on line 19; by the parens it is in the (dolist form starting at line 18
+FAIL
+```
+
+Line 11 is indented like the next form after the `let` on line 9, but the
+`let`'s closing `)` comes later, so line 11 is inside the `let`. Line 20 is
+indented like the body of the `when` on line 19, but the `when` already
+closed on line 19, so line 20 is outside it. To fix a `structure` problem:
+
+1. Work out what the code should do: should the line be inside the form the
+   message names, or outside it?
+2. Move the `)` that closes that form so the nesting matches. If the form
+   closes too late (line 11), move its `)` to before the line. If it closed
+   too early (line 20), move its `)` from the line it closed on to the end of
+   the last form that belongs inside it. The parens must still balance.
+3. Never re-indent the code only to make this check pass. That hides the
+   misplaced `)` and leaves the program wrong.
+4. If the parens are right and only the indentation is wrong, re-indent that
+   one form so each line sits to the right of the `(` of the form it is in,
+   and not to the right of a form that closed before it.
+
+Indent with spaces. A tab in a line's indentation is reported as
+`indentation contains a tab; indent with spaces only`, and the rest of the
+file is not checked for structure until the tabs are replaced with spaces.
 
 ### Stage `system`
 
