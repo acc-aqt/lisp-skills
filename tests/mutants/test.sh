@@ -20,24 +20,6 @@ set -u
 check="$root/plugins/lisp-skills/bin/lisp-check"
 kinds="original-indentation re-indented"
 
-header() {
-    sed -n "s/^;;; $2: //p" "$1"
-}
-
-# check_texts NAME OUTPUT: every expect-output text appears in OUTPUT and no
-# expect-no-output text does.
-check_texts() {
-    name=$1 output=$2
-    missing=$(header "$name" expect-output | while IFS= read -r text; do
-        printf '%s\n' "$output" | grep -qF -- "$text" || printf '%s\n' "$text"
-    done)
-    [ -z "$missing" ] || fail "$name: output lacks: $missing"
-    unwanted=$(header "$name" expect-no-output | while IFS= read -r text; do
-        printf '%s\n' "$output" | grep -qF -- "$text" && printf '%s\n' "$text"
-    done)
-    [ -z "$unwanted" ] || fail "$name: output must not contain: $unwanted"
-}
-
 # check_header NAME: the header has the fields every mutant needs.
 check_header() {
     name=$1

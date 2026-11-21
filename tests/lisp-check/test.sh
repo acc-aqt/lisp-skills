@@ -12,10 +12,6 @@ set -u
 check="$root/plugins/lisp-skills/bin/lisp-check"
 count=0
 
-header() {
-    sed -n "s/^;;; $2: //p" "$1"
-}
-
 # check_summary NAME EXPECTED STATUS OUTPUT: the last line, exit status and
 # number of OK/FAIL lines agree with EXPECTED.
 check_summary() {
@@ -29,20 +25,6 @@ check_summary() {
         [ "$status" -ne 0 ] || fail "$name: exit status 0, expected non-zero"
     fi
     [ "$summaries" -eq 1 ] || fail "$name: $summaries OK/FAIL lines, expected exactly 1"
-}
-
-# check_texts NAME OUTPUT: every expect-output text appears in OUTPUT and no
-# expect-no-output text does.
-check_texts() {
-    name=$1 output=$2
-    missing=$(header "$name" expect-output | while IFS= read -r text; do
-        printf '%s\n' "$output" | grep -qF -- "$text" || printf '%s\n' "$text"
-    done)
-    [ -z "$missing" ] || fail "$name: output lacks: $missing"
-    unwanted=$(header "$name" expect-no-output | while IFS= read -r text; do
-        printf '%s\n' "$output" | grep -qF -- "$text" && printf '%s\n' "$text"
-    done)
-    [ -z "$unwanted" ] || fail "$name: output must not contain: $unwanted"
 }
 
 check_fixture() {
