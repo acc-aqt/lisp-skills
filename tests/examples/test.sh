@@ -3,7 +3,8 @@
 #
 # Every .lisp file under plugins/lisp-skills/skills/*/examples/ (at any depth)
 # is an example. Files named *-tests.lisp are checked with --test.
-# It also runs every "```lisp repl" block in the skills (see below).
+# It also runs every "```lisp repl" block in the skills, and checks that the
+# snippets in lisp-writing's references/parens.md come from its example (see below).
 set -u
 . "$(dirname "$0")/../lib.sh"
 
@@ -81,5 +82,54 @@ for session in "$tmp"/*.session; do
     fi
 done
 [ "$sessions" -gt 0 ] || fail "no \"\`\`\`lisp repl\" blocks found in the skills"
+
+# unverified_snippets MD EXAMPLE: prints the first line of each code fragment
+# in MD's "```lisp" blocks that does not appear in EXAMPLE. A fragment is a run
+# of lines that are neither blank nor ;; comments. It appears when EXAMPLE has
+# the same lines, shifted right by the column where its first line starts,
+# after nothing but spaces and an optional ". Only ) and " may follow its last
+# line: the ends of enclosing forms or strings. A fragment with unbalanced
+# parens must be a whole string in EXAMPLE, so no ) can hide in what follows.
+# In EXAMPLE, \" counts as ".
+unverified_snippets() {
+    awk '
+        NR == FNR { gsub(/\\"/, "\""); example[++lines] = $0; next }
+        function balance(    j, text) {
+            for (j = 1; j <= n; j++) text = text frag[j]
+            return gsub(/\(/, "", text) - gsub(/\)/, "", text)
+        }
+        function found(    i, j, at, pad, prefix, last, rest) {
+            for (i = 1; i + n - 1 <= lines; i++) {
+                at = index(example[i], frag[1])
+                if (at == 0) continue
+                prefix = substr(example[i], 1, at - 1)
+                if (prefix !~ /^ *"?$/) continue
+                pad = sprintf("%" length(prefix) "s", "")
+                if (n > 1 && example[i] != prefix frag[1]) continue
+                for (j = 2; j < n; j++)
+                    if (example[i + j - 1] != pad frag[j]) break
+                if (j < n) continue
+                last = (n == 1) ? prefix frag[1] : pad frag[n]
+                if (index(example[i + n - 1], last) != 1) continue
+                rest = substr(example[i + n - 1], length(last) + 1)
+                if (rest !~ /^[)"]*$/) continue
+                if (balance() != 0 && (prefix !~ /"$/ || rest !~ /^"/)) continue
+                return 1
+            }
+            return 0
+        }
+        function flush() { if (n > 0 && !found()) print frag[1]; n = 0 }
+        $0 == "```lisp" { inblock = 1; n = 0; next }
+        inblock && $0 == "```" { flush(); inblock = 0; next }
+        inblock && ($0 == "" || $0 ~ /^;;/) { flush(); next }
+        inblock { frag[++n] = $0 }
+    ' "$2" "$1"
+}
+
+# Every snippet in the parens reference comes from its tested example.
+parens_md=plugins/lisp-skills/skills/lisp-writing/references/parens.md
+parens_example=plugins/lisp-skills/skills/lisp-writing/examples/parens-tests.lisp
+missing=$(unverified_snippets "$parens_md" "$parens_example")
+[ -z "$missing" ] || fail "$parens_md has snippets not in $parens_example: $missing"
 
 finish "example checks" "$count examples, $sessions REPL sessions"
