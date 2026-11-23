@@ -6,6 +6,9 @@ description: Check loop for Common Lisp. Use after writing or editing any Lisp s
 Every Lisp file you write must pass `lisp-check`. A file is done only when
 `lisp-check` prints `OK` for it.
 
+For many rounds on one project, the lisp-repl skill keeps a live Lisp image
+running so each round skips reloading the project. Finish with this loop.
+
 ## The loop
 
 For each Lisp file you created or changed:

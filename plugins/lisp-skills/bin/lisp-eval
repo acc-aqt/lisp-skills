@@ -1,0 +1,49 @@
+#!/bin/sh
+# Sends Lisp forms, or a file to check and load, to the image that
+# lisp-image started for this project, and prints the answer.
+#
+# Usage: lisp-eval 'FORMS'        evaluate FORMS and print each one's values
+#        lisp-eval < FILE         evaluate the forms read from standard input
+#        lisp-eval --load FILE    check FILE like lisp-check, then load it
+# --load runs the read, structure, system and compile stages in the image and
+# then loads the compiled file, which runs its tester assertions.
+# LISP_EVAL_TIMEOUT is the limit in seconds for one call (default: 60).
+# Prints output and problems, then exactly one OK or FAIL line.
+# Exit status: 0 OK, 1 an error or problem, 2 lisp-eval could not run.
+
+name=lisp-eval
+usage="Usage: lisp-eval 'FORMS' | lisp-eval --load FILE | lisp-eval < FILE"
+. "$(dirname "$0")/../lib/lisp-image.sh"
+
+timeout=${LISP_EVAL_TIMEOUT:-60}
+case $timeout in
+    ''|*[!0-9]*|0) give_up "LISP_EVAL_TIMEOUT must be a whole number of seconds, not '$timeout'" ;;
+esac
+
+case ${1-} in
+    --load)
+        [ $# -eq 2 ] || give_up "$usage"
+        [ -f "$2" ] || give_up "$2: no such file"
+        [ -r "$2" ] || give_up "$2: not readable"
+        command=load
+        argument="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")" ;;
+    -*) give_up "unknown option '$1'. $usage" ;;
+    '') [ $# -eq 0 ] || give_up "$usage"
+        command=eval
+        argument=$(cat) ;;
+    *) command=eval
+       argument="$*" ;;
+esac
+
+running || give_up "no image is running for $project; start one with: lisp-image start"
+command -v "$lisp" >/dev/null 2>&1 \
+    || give_up "Lisp binary '$lisp' not found. Install Allegro CL or set LISP_BIN to its path."
+LISP_IMAGE_TOKEN=$(cat "$state/token") || give_up "cannot read the image's token in $state"
+export LISP_IMAGE_TOKEN
+"$lisp" -qq -batch -L "$lib/lisp-eval.lisp" -e '(lisp-eval::main)' -kill \
+    -- "$port" "$timeout" "$command" "$argument"
+status=$?
+case $status in
+    0|1|2) exit "$status" ;;
+    *) give_up "$lisp stopped with exit status $status before the answer arrived" ;;
+esac

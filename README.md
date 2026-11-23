@@ -10,10 +10,12 @@ Agent skills that help LLMs, both Claude and small on-prem models such as qwen3-
 
 ## What's in it
 
-- A **Claude Code plugin**, `lisp-skills`, with three skills:
+- A **Claude Code plugin**, `lisp-skills`, with four skills:
   - `lisp-writing`: idioms, plus traps from Scheme, Clojure and case mode
   - `lisp-verify`: a loop of write → check → fix the first error → repeat
   - `lisp-project`: packages, ASDF and `tester` tests
+  - `lisp-repl`: a live Lisp image kept running through a session
+- **`lisp-image` and `lisp-eval`**: start a long-running Allegro image and send it forms or changed files, so a session loads its project once instead of on every check.
 - **`lisp-check`**: one command that reads, compiles and optionally tests a Lisp file with Allegro in batch mode, ending in `OK` or `FAIL`.
 - **A flat rules file**, [`dist/lisp-rules.md`](dist/lisp-rules.md), with the same content for open harnesses running small local models.
 
@@ -72,8 +74,23 @@ The mutant test that `make check` runs measures this on skill examples with one 
 Linux is the reference platform. Verification runs in a Docker image built from the [`Dockerfile`](Dockerfile) at the repo root, which installs Allegro CL 11.0 Express (download the tarball from Franz yourself; the Dockerfile header has the build command). Native Allegro CL Express currently fails to start on macOS on Apple Silicon ([#2](https://github.com/acc-aqt/lisp-skills/issues/2)), so on a Mac use the image:
 
 ```sh
-docker run --rm --platform linux/amd64 -v "$PWD":/work lisp-skills-allegro make check
+docker run --rm --init --platform linux/amd64 -v "$PWD":/work lisp-skills-allegro make check
 ```
+
+## A live image: `lisp-image` and `lisp-eval`
+
+A Lisp developer keeps one image running and loads changed code into it. `lisp-image` and `lisp-eval` give an agent the same workflow, so it loads a project's systems once per session instead of on every `lisp-check`.
+
+```sh
+plugins/lisp-skills/bin/lisp-image start                 # start an image for this project
+plugins/lisp-skills/bin/lisp-eval '(+ 1 2)'               # prints "=> 3", then OK
+plugins/lisp-skills/bin/lisp-eval --load src/foo.lisp     # check the file like lisp-check, then load it
+plugins/lisp-skills/bin/lisp-image stop
+```
+
+`lisp-image start | stop | restart | status` manages one image per project (the git repository around the current directory). The image is an `alisp` process that listens on a localhost port; its pid, port, log and a random token are kept in a directory under `$TMPDIR` that only its user can read (override with `LISP_IMAGE_DIR`). A request without the token is refused, so other users on the machine cannot run code in the image. `lisp-eval 'FORMS'`, or forms on standard input, evaluates the forms in the image and prints their output and values. `lisp-eval --load FILE` runs the `read`, `structure`, `system` and `compile` stages of `lisp-check` in the image, then loads the compiled file, which runs its `tester` assertions; problems are printed as `FILE:LINE: STAGE: MESSAGE`. ASDF compiles again only the project files whose date changed, and file dates count whole seconds, so an edit made in the same second as the previous load is missed. Errors, `break` and calls over `LISP_EVAL_TIMEOUT` seconds (default 60) fail the call, but the image keeps running. Both commands end with `OK` or `FAIL` and exit with 0, 1, or 2 when they could not run.
+
+The image keeps every definition it was given, including ones since renamed or deleted in the files, so `lisp-check` in a fresh Lisp stays the final check. The `lisp-repl` skill tells agents to finish with it. In a Docker container, run with `--init`, so a stopped image does not linger as an unreaped process.
 
 ## Review checklist for Lisp developers
 

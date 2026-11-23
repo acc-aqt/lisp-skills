@@ -33,6 +33,7 @@ body:
         - lisp-writing
         - lisp-verify
         - lisp-project
+        - lisp-repl
         - flat rules file (dist/lisp-rules.md)
         - other
         - not sure
