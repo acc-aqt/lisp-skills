@@ -1,0 +1,79 @@
+#!/bin/sh
+# Starts, stops and reports on a long-running Allegro CL image that lisp-eval
+# sends forms and files to, so they need not be loaded again for every check.
+#
+# Usage: lisp-image start | stop | restart | status
+# There is one image per project (the git repository around the current
+# directory). It runs in the directory it was started in.
+# LISP_BIN names the Lisp binary (default: alisp). LISP_IMAGE_DIR overrides
+# where the image keeps its pid, port and log.
+# Prints one message line, then exactly one OK or FAIL line.
+# Exit status: 0 OK, 1 status found no image, 2 lisp-image could not run.
+
+name=lisp-image
+usage='Usage: lisp-image start | stop | restart | status'
+. "$(dirname "$0")/../lib/lisp-image.sh"
+
+start() {
+    if running; then
+        echo "lisp-image: already running (pid $pid, port $port)"
+        return
+    fi
+    command -v "$lisp" >/dev/null 2>&1 \
+        || give_up "Lisp binary '$lisp' not found. Install Allegro CL or set LISP_BIN to its path."
+    # Only this user may read the token that lets a request run code.
+    umask 077
+    mkdir -p "$state" && chmod 700 "$state" || give_up "cannot create $state"
+    rm -f "$state/pid" "$state/port" "$state/log"
+    od -An -N16 -tx1 /dev/urandom | tr -d ' \n' >"$state/token" \
+        || give_up "cannot write a token to $state"
+    nohup "$lisp" -qq -L "$lib/lisp-check.lisp" -L "$lib/lisp-image.lisp" \
+        -e '(lisp-image::serve)' -- "$state" >"$state/log" 2>&1 </dev/null &
+    echo $! >"$state/pid"
+    tries=0
+    until running; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 300 ] || ! kill -0 "$(cat "$state/pid")" 2>/dev/null; then
+            kill "$(cat "$state/pid")" 2>/dev/null
+            tail -n 20 "$state/log"
+            give_up "the image did not start; its log is $state/log"
+        fi
+        sleep 0.1
+    done
+    echo "lisp-image: started (pid $pid, port $port) in $(pwd)"
+}
+
+stop() {
+    if ! running; then
+        rm -f "$state/pid" "$state/port"
+        echo "lisp-image: stopped (no image was running)"
+        return
+    fi
+    kill "$pid"
+    # A process nobody reaps (in a container without an init) never vanishes,
+    # so give up waiting after 5 seconds.
+    tries=0
+    while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 50 ]; do
+        tries=$((tries + 1))
+        sleep 0.1
+    done
+    ! kill -0 "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
+    rm -f "$state/pid" "$state/port" "$state/token"
+    echo "lisp-image: stopped (pid $pid)"
+}
+
+[ $# -eq 1 ] || give_up "$usage"
+case $1 in
+    start) start ;;
+    stop) stop ;;
+    restart) stop >/dev/null; start ;;
+    status)
+        if ! running; then
+            echo "lisp-image: not running; start one with: lisp-image start"
+            echo FAIL
+            exit 1
+        fi
+        echo "lisp-image: running (pid $pid, port $port); log: $state/log" ;;
+    *) give_up "unknown command '$1'. $usage" ;;
+esac
+echo OK

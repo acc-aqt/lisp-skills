@@ -326,9 +326,10 @@ project's packages. Warnings are left to the compile stage."
                 "compile" condition)))
     ok))
 
-(defun test-stage (file fasl)
-  "Load FASL, which runs FILE's top-level tester assertions.
-Tester prints each failing assertion itself; this adds one summary line."
+(defun load-assertions (file fasl stage error-message)
+  "Load FASL, which runs FILE's top-level tester assertions, and return the
+numbers of failed and passed assertions. If loading signals an error, report
+it under STAGE after ERROR-MESSAGE and return NIL."
   (let ((*load-verbose* nil))
     (require :tester))
   (let ((errors (find-symbol "*TEST-ERRORS*" :util.test))
@@ -337,34 +338,47 @@ Tester prints each failing assertion itself; this adds one summary line."
       (handler-case (let ((*package* (find-package :cl-user)))
                       (load fasl :verbose nil :print nil))
         (error (condition)
-          (report file nil "test" (format nil "error while running the tests: ~a"
-                                          (one-line condition)))
-          (return-from test-stage nil)))
-      (let ((failed (symbol-value errors))
-            (passed (symbol-value successes)))
-        (cond ((plusp failed)
-               (report file nil "test" (format nil "~d of ~d assertions failed"
-                                               failed (+ failed passed)))
-               nil)
-              ((zerop passed)
-               (report file nil "test" "no tester assertions ran (write them as top-level (test ...) forms, not inside with-tests)")
-               nil)
-              (t t))))))
+          (report file nil stage (format nil "~a: ~a" error-message (one-line condition)))
+          (return-from load-assertions nil)))
+      (values (symbol-value errors) (symbol-value successes)))))
+
+(defun report-failed-assertions (file failed passed)
+  (report file nil "test" (format nil "~d of ~d assertions failed"
+                                  failed (+ failed passed))))
+
+(defun test-stage (file fasl)
+  "Load FASL, which runs FILE's top-level tester assertions.
+Tester prints each failing assertion itself; this adds one summary line."
+  (multiple-value-bind (failed passed)
+      (load-assertions file fasl "test" "error while running the tests")
+    (cond ((null failed) nil)
+          ((plusp failed)
+           (report-failed-assertions file failed passed)
+           nil)
+          ((zerop passed)
+           (report file nil "test" "no tester assertions ran (write them as top-level (test ...) forms, not inside with-tests)")
+           nil)
+          (t t))))
+
+(defun check-file (file last-stage)
+  "Run the stages on FILE and return true if it has no problems. LAST-STAGE,
+if not NIL, is called with FILE and its compiled fasl after a clean compile."
+  (let ((text (file-text file))
+        (fasl (fasl-path)))
+    (unwind-protect
+         (and (read-stage file text)
+              (let ((structure-ok (structure-stage file text)))
+                (and (system-stage file)
+                     (compile-stage file text fasl)
+                     (or (null last-stage) (funcall last-stage file fasl))
+                     structure-ok)))
+      (ignore-errors (delete-file fasl)))))
 
 (defun main ()
   (let* ((arguments (rest (sys:command-line-arguments :application t)))
-         (file (first arguments))
-         (text (file-text file))
-         (fasl (fasl-path))
-         (ok (unwind-protect
-                  (and (read-stage file text)
-                       (let ((structure-ok (structure-stage file text)))
-                         (and (system-stage file)
-                              (compile-stage file text fasl)
-                              (or (not (member "--test" arguments :test #'string=))
-                                  (test-stage file fasl))
-                              structure-ok)))
-               (ignore-errors (delete-file fasl)))))
+         (ok (check-file (first arguments)
+                         (and (member "--test" arguments :test #'string=)
+                              #'test-stage))))
     (format t "~:[FAIL~;OK~]~%" ok)
     (finish-output)
     (excl:exit (if ok 0 1) :quiet t)))
